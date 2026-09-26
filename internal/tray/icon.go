@@ -63,6 +63,12 @@ const (
 	// The v4 icon carries the guide text the shell adds to the hover tooltip.
 	notifyIconVersion4 = 4
 
+	// The notifications the shell sends a version-4 icon instead of raw mouse
+	// messages. NIN_SELECT is a left click and NIN_KEYSELECT is the keyboard's
+	// equivalent; both arrive as LOWORD(lParam), as the mouse messages do.
+	ninSelect    = 0x0400 // WM_USER + 0
+	ninKeySelect = 0x0401 // WM_USER + 1
+
 	mfString    = 0x0000
 	mfSeparator = 0x0800
 	mfChecked   = 0x0008

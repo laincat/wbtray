@@ -6,6 +6,7 @@ import (
 	"math"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"wbtray/internal/raster"
@@ -89,6 +90,23 @@ type flyout struct {
 
 	trackingMouse bool
 	icon          *Icon
+	// shownAt is when the menu was last made visible, which the dismiss watch
+	// uses to leave it alone while the shell settles the foreground.
+	shownAt time.Time
+	// hadFocus records whether this appearance of the menu ever held the
+	// keyboard focus. Windows does not always grant it to a window shown from a
+	// background process, so "lost focus" is only meaningful once it was had.
+	hadFocus bool
+	// buttonWasDown is the previous poll's mouse-button state, which is what
+	// turns sampling into a transition test.
+	buttonWasDown bool
+}
+
+// tookFocus reports whether the current appearance of the menu ever held focus.
+func (f *flyout) tookFocus() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.hadFocus
 }
 
 // row is one laid-out line of the menu.
@@ -172,6 +190,7 @@ func (f *flyout) openAt(t *Icon) {
 	f.hover = -1
 	f.pressed = -1
 	f.scroll = 0
+	f.hadFocus = false
 	t.mu.Lock()
 	owner := t.hwnd
 	t.mu.Unlock()
@@ -205,13 +224,18 @@ func (f *flyout) openAt(t *Icon) {
 
 	f.mu.Lock()
 	f.open = true
+	f.shownAt = time.Now()
 	f.mu.Unlock()
 
 	winapi.ProcSetWindowPos.Call(hwnd, hwndTopmost, uintptr(x), uintptr(y),
-		uintptr(ww), uintptr(wh), swpNoActivate|swpShowWindow)
+		uintptr(ww), uintptr(wh), swpShowWindow)
+	// Shown, then brought to the foreground, then placed. The order is the
+	// documented dance: a window that is not yet visible cannot take the
+	// foreground, and a window that has just taken it has not necessarily been
+	// positioned by the time the shell looks at it.
 	winapi.ProcSetForegroundWindow.Call(hwnd)
 	winapi.ProcSetWindowPos.Call(hwnd, hwndTopmost, uintptr(x), uintptr(y),
-		uintptr(ww), uintptr(wh), swpNoActivate|swpShowWindow)
+		uintptr(ww), uintptr(wh), swpShowWindow)
 	winapi.ProcInvalidateRect.Call(hwnd, 0, 1)
 	winapi.ProcUpdateWindow.Call(hwnd)
 
@@ -237,10 +261,20 @@ func (f *flyout) create(owner uintptr, w, h int) uintptr {
 		wsPopup         = 0x80000000
 		wsExToolWindow  = 0x00000080
 		wsExTopmost     = 0x00000008
-		wsExNoActivate  = 0x08000000
 	)
+	// Deliberately activatable, and that is the whole point of not passing
+	// WS_EX_NOACTIVATE.
+	//
+	// The window was created non-activating in the first version, on the theory
+	// that a menu should not steal focus. What that actually bought was a menu
+	// that could not work: SetForegroundWindow on such a window does nothing, so
+	// the dismiss watch — which closes the menu when the foreground window is
+	// neither it nor the tray — saw a stranger in the foreground sixty
+	// milliseconds after opening and closed the menu again. It flashed and was
+	// gone, which is indistinguishable from a click doing nothing at all, and it
+	// also meant the keyboard could never reach the menu.
 	hwnd, _, _ := winapi.ProcCreateWindowExW.Call(
-		wsExToolWindow|wsExTopmost|wsExNoActivate,
+		wsExToolWindow|wsExTopmost,
 		uintptr(unsafe.Pointer(winapi.UTF16Ptr("wbtrayFlyoutWnd"))),
 		uintptr(unsafe.Pointer(winapi.UTF16Ptr("wbtray"))),
 		wsPopup, 0, 0, uintptr(w), uintptr(h),

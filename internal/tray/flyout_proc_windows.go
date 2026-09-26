@@ -3,6 +3,7 @@
 package tray
 
 import (
+	"time"
 	"unsafe"
 
 	"wbtray/internal/traymenu"
@@ -19,6 +20,7 @@ const (
 	wmMouseWheel  = 0x020A
 	wmGetDlgCode  = 0x0087
 	wmNcDestroy   = 0x0082
+	wmSetFocus    = 0x0007
 
 	vkEscape = 0x1B
 	vkReturn = 0x0D
@@ -34,8 +36,18 @@ const (
 // dismissalTimerID drives the "clicked outside" test.
 const (
 	dismissTimerID = 3
-	dismissTimerMs = 60
+	// Faster than a person can click and release, so a transition cannot be
+	// missed between two polls. It is a cheap check — two syscalls — and it runs
+	// only while the menu is open.
+	dismissTimerMs = 25
 )
+
+// dismissGrace is how long the menu is left alone after being shown, whatever
+// the foreground window says. It covers the moment between the menu appearing
+// and the shell settling who owns the foreground, during which a dismiss check
+// would otherwise fire on a technicality and close a menu the operator is
+// looking at.
+const dismissGrace = 400 * time.Millisecond
 
 // hoverCallback is set by the application so a row can preview itself: hovering
 // a style row is what paints it onto the live tray icon.
@@ -89,14 +101,31 @@ func (f *flyout) wndProc(hwnd uintptr, msg uint32, wparam, lparam uintptr) uintp
 		return 0
 
 	case wmActivate:
-		if lowWord(wparam) == waInactive {
-			// Losing the foreground is the ordinary way a menu closes.
+		// Only a menu that actually held the foreground can lose it. Windows does
+		// not always grant activation to a window shown by a background process —
+		// the shell refuses when the caller is not the foreground process, which
+		// is the normal state for a tray icon — and a menu that treated "never
+		// activated" as "just lost activation" would hide itself the instant it
+		// appeared. That is precisely how the first version failed: the window
+		// was created, positioned and then hidden again before a frame could be
+		// seen.
+		if lowWord(wparam) == waInactive && f.tookFocus() {
 			f.leave()
 		}
 		return 0
 
 	case wmKillFocus:
-		f.leave()
+		if f.tookFocus() {
+			f.leave()
+		}
+		return 0
+
+	case wmSetFocus:
+		// The menu has the focus, so from here on losing it means the operator
+		// moved on rather than that the shell never granted it.
+		f.mu.Lock()
+		f.hadFocus = true
+		f.mu.Unlock()
 		return 0
 
 	case wmPaint:
@@ -370,24 +399,59 @@ func (f *flyout) checkDismiss(hwnd uintptr) {
 	var pt winapi.Point
 	winapi.ProcGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
 	inside := pt.X >= rect.Left && pt.X < rect.Right && pt.Y >= rect.Top && pt.Y < rect.Bottom
-	if inside {
-		// A click inside is the menu's own business.
-		if state, _, _ := winapi.ProcGetAsyncKeyState.Call(vkLButton); state&0x8000 != 0 {
+
+	// A click is a transition, not a state, and this is the whole reason the
+	// check does anything beyond reading the keyboard: a quick click is already
+	// released by the time a sixty-millisecond timer next asks, so sampling
+	// "is the button down" misses almost every click a person makes. The
+	// previous version sampled, and the result was a menu that ignored clicks
+	// outside it and stayed open until the operator clicked somewhere that took
+	// the focus away.
+	down := isKeyDown(vkLButton)
+	f.mu.Lock()
+	wasDown := f.buttonWasDown
+	f.buttonWasDown = down
+	f.mu.Unlock()
+	if down && !wasDown {
+		if inside {
+			// A click inside is the menu's own business: the row under the
+			// cursor handles it, or nothing does.
 			return
 		}
-		return
-	}
-	state, _, _ := winapi.ProcGetAsyncKeyState.Call(vkLButton)
-	if state&0x8000 != 0 {
 		f.leave()
 		return
 	}
+
 	// A window that is no longer foreground and has no button held means the
 	// user moved on: another application took focus.
+	//
+	// There is a grace period, and it is not decoration. The shell can take a
+	// moment to settle the foreground after a menu is shown — and a menu that
+	// closed itself during that moment would look like a click that did nothing,
+	// which is exactly how the first version failed. Nothing here can be trusted
+	// until the window has been on screen long enough to be seen.
+	f.mu.Lock()
+	showing, hadFocus := f.shownAt, f.hadFocus
+	f.mu.Unlock()
+	if !hadFocus {
+		// The menu never held the foreground, so whatever holds it now is not a
+		// change the operator made. The click-outside test below is the one that
+		// applies in that case.
+		return
+	}
+	if !showing.IsZero() && time.Since(showing) < dismissGrace {
+		return
+	}
 	fg, _, _ := winapi.ProcGetForegroundWindow.Call()
 	if fg != hwnd && fg != f.ownerWindow() {
 		f.leave()
 	}
+}
+
+// isKeyDown reports whether a virtual key is currently held.
+func isKeyDown(vk uintptr) bool {
+	state, _, _ := winapi.ProcGetAsyncKeyState.Call(vk)
+	return state&0x8000 != 0
 }
 
 // ownerWindow is the tray window, which is a legitimate foreground owner while

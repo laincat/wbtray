@@ -15,14 +15,23 @@ import (
 func (t *Icon) wndProc(hwnd uintptr, msg uint32, wparam, lparam uintptr) uintptr {
 	switch msg {
 	case callbackMsg:
-		switch uint32(lparam) {
-		case wmLButtonUp:
+		// This shell uses the version-4 notification-icon protocol, which packs
+		// the icon's id into the high word of lParam and the mouse message into
+		// the low word. Reading the whole of lParam as the message — which the
+		// first version of this did — matches nothing at all, because the value
+		// being compared is 0x0001xxxx rather than 0x0205, and the result is a
+		// tray icon that silently ignores every click.
+		switch winapi.LowWord(lparam) {
+		case ninSelect, wmLButtonUp:
 			t.handleIconClick()
 		case wmLButtonDBL:
 			if t.cb.DoubleClick != nil {
 				go t.cb.DoubleClick()
 			}
-		case wmRButtonUp:
+		case ninKeySelect, wmRButtonUp, wmContextMenu:
+			// NIN_KEYSELECT is the keyboard asking for the menu, and
+			// WM_CONTEXTMENU is what a version-4 icon receives for a right
+			// click. Both lead to the same place as a right-button message.
 			t.showMenuAtCursor()
 		}
 		return 0
