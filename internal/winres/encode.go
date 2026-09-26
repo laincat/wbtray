@@ -79,12 +79,12 @@ func encodeDIB(img image.Image, size int) []byte {
 	total := header + xorStride*size + maskStride*size
 
 	out := make([]byte, total)
-	binary.LittleEndian.PutUint32(out[0:], header)             // biSize
-	binary.LittleEndian.PutUint32(out[4:], uint32(size))       // biWidth
-	binary.LittleEndian.PutUint32(out[8:], uint32(size*2))     // biHeight: image + mask
-	binary.LittleEndian.PutUint16(out[12:], 1)                 // biPlanes
-	binary.LittleEndian.PutUint16(out[14:], 32)                // biBitCount
-	binary.LittleEndian.PutUint32(out[16:], 0)                 // biCompression: BI_RGB
+	binary.LittleEndian.PutUint32(out[0:], header)                  // biSize
+	binary.LittleEndian.PutUint32(out[4:], uint32(size))            // biWidth
+	binary.LittleEndian.PutUint32(out[8:], uint32(size*2))          // biHeight: image + mask
+	binary.LittleEndian.PutUint16(out[12:], 1)                      // biPlanes
+	binary.LittleEndian.PutUint16(out[14:], 32)                     // biBitCount
+	binary.LittleEndian.PutUint32(out[16:], 0)                      // biCompression: BI_RGB
 	binary.LittleEndian.PutUint32(out[20:], uint32(xorStride*size)) // biSizeImage
 
 	// The colour image, bottom-up: a DIB's first row is the bottom of the

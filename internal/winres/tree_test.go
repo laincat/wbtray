@@ -7,14 +7,16 @@ import (
 )
 
 // A resource directory is a tree of three levels — type, then name or id, then
-// language — and Windows walks it by following offsets. Getting the levels wrong
-// produces a file whose resources exist but cannot be found, which is worse than
-// producing no resources at all: the icon is silently missing and nothing
-// reports an error.
+// language — and what the third level points at is not more directory but a
+// 16-byte IMAGE_RESOURCE_DATA_ENTRY. Windows walks the tree by following offsets,
+// and getting either half wrong produces a file whose resources exist and cannot
+// be found, which is worse than producing no resources at all: the icon is
+// silently missing and nothing reports an error.
 //
-// These tests parse the section this package builds and assert the tree, which
-// is the only way to catch a level error. An earlier version emitted the id in
-// the type position, and every build shipped without an icon.
+// These tests parse the section this package builds and assert both halves, which
+// is the only way to catch an error the format does not report. Earlier versions
+// emitted the id in the type position, omitted the root, and pointed the last
+// level straight at the bytes; every one of those shipped without an icon.
 
 // entry is one 8-byte directory entry.
 type entry struct {
@@ -48,6 +50,57 @@ func readDir(t *testing.T, b []byte, off int) []entry {
 	return out
 }
 
+// dataEntry is an IMAGE_RESOURCE_DATA_ENTRY: the record the language level points
+// at, holding where the bytes are and how long they are.
+type dataEntry struct {
+	address uint32
+	size    uint32
+}
+
+// readDataEntry parses the record at an offset.
+func readDataEntry(t *testing.T, b []byte, off int) dataEntry {
+	t.Helper()
+	if off+dataEntryLen > len(b) {
+		t.Fatalf("data entry at %d runs past the section", off)
+	}
+	e := b[off:]
+	return dataEntry{
+		address: binary.LittleEndian.Uint32(e[0:]),
+		size:    binary.LittleEndian.Uint32(e[4:]),
+	}
+}
+
+// leafData follows the last directory level to the bytes it names, for a section
+// that is not yet linked.
+//
+// The address in a data entry is a virtual address. In the section alone it is
+// still the offset the builder wrote, because no linker has placed it yet, which
+// is why these tests can read it directly; the linked-image tests subtract the
+// section's own address instead.
+//
+// The base is subtracted only when one is given, so this reads both the object
+// the builder produces and a linked image.
+func leafData(t *testing.T, b []byte, lang entry) []byte {
+	t.Helper()
+	return leafDataAt(t, b, lang, 0)
+}
+
+// leafDataAt follows the last directory level to the bytes it names, given the
+// address the section sits at so a relocated data entry can be resolved too.
+func leafDataAt(t *testing.T, b []byte, lang entry, base uint32) []byte {
+	t.Helper()
+	if lang.isDir {
+		t.Fatalf("the language level at %d is a directory, not a data entry", lang.offset)
+	}
+	e := readDataEntry(t, b, int(lang.offset))
+	start := e.address - base
+	if e.address < base || int(start) > len(b) || int(start)+int(e.size) > len(b) {
+		t.Fatalf("data entry at %d names %d bytes at %#x, which is outside the %d-byte "+
+			"section at %#x", lang.offset, e.size, e.address, len(b), base)
+	}
+	return b[start : start+e.size]
+}
+
 // tree renders the section as a nested description, so a failure prints what was
 // actually built rather than only what was expected.
 func tree(t *testing.T, b []byte) string {
@@ -67,17 +120,12 @@ func tree(t *testing.T, b []byte) string {
 			}
 			for _, lang := range readDir(t, b, int(name.offset)) {
 				out += fmt.Sprintf("    lang %d\n", lang.id)
-				if !lang.isDir {
-					out += "      <not a directory>\n"
+				if lang.isDir {
+					out += "      <DIRECTORY, want a data entry>\n"
 					continue
 				}
-				for _, data := range readDir(t, b, int(lang.offset)) {
-					where := "leaf"
-					if data.isDir {
-						where = "DIRECTORY, not a leaf"
-					}
-					out += fmt.Sprintf("      data (id %d): %s\n", data.id, where)
-				}
+				e := readDataEntry(t, b, int(lang.offset))
+				out += fmt.Sprintf("      data: %d bytes at %d\n", e.size, e.address)
 			}
 		}
 	}
@@ -99,8 +147,8 @@ func kindOf(id uint32) string {
 // resources are stored in.
 //
 // The levels are: a root naming the resource types, then the names or ids within
-// each type, then the language, and finally the entries that point at the data.
-// Four levels in total, and the root is the one that is easy to leave out — a
+// each type, then the language, and the language holds the offset of a data entry
+// rather than of the bytes. The root is the one that is easy to leave out — a
 // section that starts with a type directory has Windows read that as the root,
 // and the resources become unreachable without anything reporting an error.
 func TestIconResourcesAreATypeNameLanguageTree(t *testing.T) {
@@ -147,28 +195,28 @@ func TestIconResourcesAreATypeNameLanguageTree(t *testing.T) {
 		t.Errorf("RT_GROUP_ICON should be a single group with id 1, got %v", groups)
 	}
 
-	// The fourth level points at the data, and it must not be a directory.
+	// The language level names a data entry for every resource, and the entry has
+	// to be reachable and non-empty.
+	seen := 0
 	for _, ty := range types {
 		for _, name := range byType[ty.id] {
-			for _, lang := range readDir(t, section, int(name.offset)) {
-				if !lang.isDir {
-					t.Errorf("%s/%d's language entry is not a directory; the tree is:\n%s",
-						kindOf(ty.id), name.id, tree(t, section))
-					continue
+			langs := readDir(t, section, int(name.offset))
+			if len(langs) != 1 {
+				t.Errorf("%s/%d has %d languages, want 1; the tree is:\n%s",
+					kindOf(ty.id), name.id, len(langs), tree(t, section))
+			}
+			for _, lang := range langs {
+				if data := leafData(t, section, lang); len(data) == 0 {
+					t.Errorf("%s/%d/lang %d holds no data; the tree is:\n%s",
+						kindOf(ty.id), name.id, lang.id, tree(t, section))
 				}
-				data := readDir(t, section, int(lang.offset))
-				if len(data) != 1 {
-					t.Errorf("%s/%d/lang %d has %d data entries, want 1; the tree is:\n%s",
-						kindOf(ty.id), name.id, lang.id, len(data), tree(t, section))
-				}
-				for _, d := range data {
-					if d.isDir {
-						t.Errorf("%s/%d's data entry points at a directory; the tree is:\n%s",
-							kindOf(ty.id), name.id, tree(t, section))
-					}
-				}
+				seen++
 			}
 		}
+	}
+	// Two types, and the group has one name while RT_ICON has one per image.
+	if want := len(images) + 1; seen != want {
+		t.Errorf("the tree has %d resources, want %d; the tree is:\n%s", seen, want, tree(t, section))
 	}
 }
 
@@ -193,12 +241,7 @@ func TestGroupIconListsEveryImage(t *testing.T) {
 		}
 		for _, name := range readDir(t, section, int(ty.offset)) {
 			for _, lang := range readDir(t, section, int(name.offset)) {
-				for _, data := range readDir(t, section, int(lang.offset)) {
-					if int(data.offset)+14*len(images) > len(section) {
-						t.Fatalf("the group's data runs past the section")
-					}
-					group = section[data.offset:]
-				}
+				group = leafData(t, section, lang)
 			}
 		}
 	}

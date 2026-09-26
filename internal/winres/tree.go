@@ -9,24 +9,32 @@ import (
 
 // Building a resource directory.
 //
-// A PE resource section is a four-level tree, and the levels are counted from the
-// root:
+// A PE resource section is a three-level tree of directories followed by a list
+// of data entries, and the two halves are different kinds of thing:
 //
 //	root                     one entry per resource type
 //	  type                   one entry per name or id within that type
-//	    name                 one entry per language
-//	      language           points at the data
+//	    language             points at an IMAGE_RESOURCE_DATA_ENTRY
 //
-// Every node is a 16-byte header followed by one 8-byte entry per child. An entry
-// either points at the next directory down or at a leaf, distinguished by the
-// high bit of its offset word, and every offset is measured from the start of the
-// section.
+//	IMAGE_RESOURCE_DATA_ENTRY  a 16-byte record: the data's address, its size,
+//	                           its code page and a reserved word
 //
-// The root is the part that is easy to leave out, and leaving it out does not
-// fail: the section simply begins with a type directory, Windows reads that as
-// the root, and the resources become unreachable. The executable then has no
-// icon and nothing reports an error. That is exactly what happened here, and this
-// file is written with the root explicit so it cannot happen again.
+// The data entry is the part that is easy to leave out, and leaving it out does
+// not fail. An entry that points straight at the bytes produces a section whose
+// tree looks completely correct — every directory, every type, every name — and
+// whose resources Windows cannot read, because it follows every leaf to a data
+// entry and finds image data instead. The executable then shows the system's
+// generic icon, which is indistinguishable from having no icon at all.
+//
+// Two things follow from the format and are worth stating because both were
+// wrong here:
+//
+//   - The tree has three levels of *directory*, not four. The language entry is
+//     the last directory entry; what it points at is a data entry, not a
+//     directory.
+//   - Directory entries hold offsets from the start of the section and are not
+//     relocated. Only a data entry's address is, because only it holds a virtual
+//     address rather than an offset.
 
 // leaf is one resource: its bytes and where it belongs in the tree.
 type leaf struct {
@@ -34,6 +42,9 @@ type leaf struct {
 	id   uint16 // the resource id, e.g. 1 for the first icon image
 	data []byte
 }
+
+// dataEntryLen is sizeof(IMAGE_RESOURCE_DATA_ENTRY).
+const dataEntryLen = 16
 
 // resourceTree collects leaves and serialises them.
 type resourceTree struct {
@@ -54,44 +65,62 @@ func (l *leaf) setData(data []byte) { l.data = data }
 // node is one directory in the tree, identified by the path that reaches it.
 //
 // The path is what makes the arithmetic checkable: a node's children are the
-// leaves whose first entries match its path, and its depth follows from the
-// path's length. Writing the tree this way rather than as three nested loops
-// means the root is a node like any other, with an empty path and every type as
-// its children.
+// leaves whose leading coordinates match its path, and its depth is the path's
+// length. Written this way the root is a node like any other — an empty path with
+// every type below it — which is why it cannot be left out by accident.
 type node struct {
-	path []uint16 // empty for the root, then type, then type+name, then type+name+lang
+	// path is empty for the root, then the type, then the type and name.
+	path []uint16
 	// offset is filled in while the section is laid out.
 	offset int
 }
 
-// depth is how many levels below the root this node sits.
+// depth is how many levels below the root this node sits: 0, 1 or 2.
 func (n *node) depth() int { return len(n.path) }
 
-// children returns the leaves directly below this node.
+// leafCoord is the coordinate a leaf contributes at a given depth.
+func leafCoord(l *leaf, depth int) uint16 {
+	switch depth {
+	case 0:
+		return l.typ
+	case 1:
+		return l.id
+	case 2:
+		return langID
+	}
+	return 0
+}
+
+// children returns the leaves directly below this node, which are those whose
+// leading coordinates match its path.
 func (n *node) children(leaves []*leaf) []*leaf {
 	var out []*leaf
 	for _, l := range leaves {
-		if leafMatches(l, n.path) {
+		if matches(l, n.path) {
 			out = append(out, l)
 		}
 	}
 	return out
 }
 
+// matches reports whether a leaf hangs below a path.
+func matches(l *leaf, path []uint16) bool {
+	for i, p := range path {
+		if i >= 3 || leafCoord(l, i) != p {
+			return false
+		}
+	}
+	return true
+}
+
 // entries returns the distinct children of a node at its own level: the
 // coordinates to emit, each with one leaf that reaches it.
 //
 // Distinctness is the point. A directory has one entry per child, not one per
-// leaf below it, so the root with four icon images under two types has two
-// entries and not four. Emitting one per leaf produced a root listing the same
-// type twice, which is a tree Windows cannot resolve.
-//
-// At the last level there is nothing left to group: each leaf is its own entry,
-// because a leaf is what the entry points at.
+// leaf below it, so a root with four images under two types has two entries.
+// Emitting one per leaf produced a root that listed the same type twice, which is
+// a tree Windows cannot resolve.
 func (n *node) entries(leaves []*leaf) []*leaf {
-	if n.depth() >= 3 {
-		return n.children(leaves)
-	}
 	seen := map[uint16]bool{}
 	var out []*leaf
 	for _, l := range n.children(leaves) {
@@ -108,36 +137,8 @@ func (n *node) entries(leaves []*leaf) []*leaf {
 	return out
 }
 
-// leafMatches reports whether a leaf hangs directly below a path.
-//
-// A node at depth d matches a leaf whose first d coordinates equal its path: the
-// root matches everything, a type node matches that type, and so on. The leaf's
-// own value at the node's depth is the entry the node has for it.
-func leafMatches(l *leaf, path []uint16) bool {
-	coords := [4]uint16{l.typ, l.id, langID, 0}
-	for i, p := range path {
-		if i >= len(coords) || coords[i] != p {
-			return false
-		}
-	}
-	return true
-}
-
-// leafCoord is the value a leaf contributes at a given depth.
-func leafCoord(l *leaf, depth int) uint16 {
-	switch depth {
-	case 0:
-		return l.typ
-	case 1:
-		return l.id
-	case 2:
-		return langID
-	}
-	return 0
-}
-
-// buildTree returns every node, parents before children, so laying them out in
-// order puts each directory before the data it points at.
+// buildTree returns every directory, parents before children, so laying them out
+// in order puts each directory before the data entries and the data it points at.
 func buildTree(leaves []*leaf) []*node {
 	root := &node{}
 	nodes := []*node{root}
@@ -145,22 +146,14 @@ func buildTree(leaves []*leaf) []*node {
 
 	var walk func(n *node)
 	walk = func(n *node) {
-		// The children of a node are the distinct coordinates its leaves
-		// contribute at its depth.
-		values := map[uint16]bool{}
-		for _, l := range n.children(leaves) {
-			if n.depth() < 3 {
-				values[leafCoord(l, n.depth())] = true
-			}
+		// A node's children are the distinct coordinates its leaves contribute at
+		// its depth. Below the language level there is nothing left to group, so
+		// the walk stops there: the entries at that level are data entries.
+		if n.depth() >= 2 {
+			return
 		}
-		sorted := make([]uint16, 0, len(values))
-		for v := range values {
-			sorted = append(sorted, v)
-		}
-		sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
-
-		for _, v := range sorted {
-			child := &node{path: append(append([]uint16{}, n.path...), v)}
+		for _, l := range n.entries(leaves) {
+			child := &node{path: append(append([]uint16{}, n.path...), leafCoord(l, n.depth()))}
 			key := fmt.Sprint(child.path)
 			if seen[key] {
 				continue
@@ -180,45 +173,100 @@ func (t *resourceTree) bytes() ([]byte, error) {
 		return nil, fmt.Errorf("winres: empty resource tree")
 	}
 
-	nodes := buildTree(t.leaves)
+	dirs := buildTree(t.leaves)
+	imageLeaves, groupLeaves := splitLeaves(t.leaves)
 
-	// Directories first, then data, so no offset written into an entry is
-	// disturbed by something added afterwards.
+	// Layout: every directory, then every data entry, then the resource image and
+	// the group icon.
+	//
+	// The order matters because every offset is measured from the start of the
+	// section and nothing may be moved once an offset has been written. Data
+	// entries come before the resource image so the image's own offset can be
+	// written into them after the fact.
 	offset := 0
-	for _, n := range nodes {
-		n.offset = offset
-		offset += 16 + 8*len(n.entries(t.leaves))
+	for _, d := range dirs {
+		d.offset = offset
+		offset += 16 + 8*len(d.entries(t.leaves))
 	}
-	leafOffset := map[*leaf]int{}
-	for _, l := range t.leaves {
+	dataEntryOffset := map[*leaf]int{}
+	for _, l := range groupLeaves {
 		offset = align4(offset)
-		leafOffset[l] = offset
+		dataEntryOffset[l] = offset
+		offset += dataEntryLen
+	}
+	for _, l := range imageLeaves {
+		offset = align4(offset)
+		dataEntryOffset[l] = offset
+		offset += dataEntryLen
+	}
+	// The image data and the group icon, which the data entries will point at.
+	dataOffset := map[*leaf]int{}
+	for _, l := range groupLeaves {
+		offset = align4(offset)
+		dataOffset[l] = offset
+		offset += len(l.data)
+	}
+	for _, l := range imageLeaves {
+		offset = align4(offset)
+		dataOffset[l] = offset
 		offset += len(l.data)
 	}
 
 	var buf bytes.Buffer
-	for _, n := range nodes {
+	for _, d := range dirs {
 		var hdr [16]byte
-		binary.LittleEndian.PutUint16(hdr[14:], uint16(len(n.entries(t.leaves))))
+		// IMAGE_RESOURCE_DIRECTORY: characteristics, timestamp, versions, then the
+		// counts. Everything but the counts is zero, and Windows ignores the rest.
+		binary.LittleEndian.PutUint16(hdr[14:], uint16(len(d.entries(t.leaves))))
 		buf.Write(hdr[:])
 
-		for _, l := range n.entries(t.leaves) {
+		for _, l := range d.entries(t.leaves) {
 			var e [8]byte
-			if n.depth() == 3 {
-				// A leaf: the language, pointing at the data.
-				binary.LittleEndian.PutUint32(e[0:], langID)
-				binary.LittleEndian.PutUint32(e[4:], uint32(leafOffset[l]))
+			binary.LittleEndian.PutUint32(e[0:], uint32(leafCoord(l, d.depth())))
+			if d.depth() == 2 {
+				// The last directory level: the entry names the language and
+				// points at a data entry, which is not a directory, so the high
+				// bit stays clear.
+				binary.LittleEndian.PutUint32(e[4:], uint32(dataEntryOffset[l]))
 			} else {
-				// A subdirectory: the child's coordinate, pointing at its node.
-				child := &node{path: append(append([]uint16{}, n.path...), leafCoord(l, n.depth()))}
-				binary.LittleEndian.PutUint32(e[0:], uint32(leafCoord(l, n.depth())))
-				binary.LittleEndian.PutUint32(e[4:], uint32(findNode(nodes, child).offset)|0x80000000)
+				child := &node{path: append(append([]uint16{}, d.path...), leafCoord(l, d.depth()))}
+				binary.LittleEndian.PutUint32(e[4:], uint32(findDir(dirs, child).offset)|0x80000000)
 			}
 			buf.Write(e[:])
 		}
 	}
-	for _, l := range t.leaves {
-		for buf.Len() < leafOffset[l] {
+
+	// The data entries. Their first field is the address of the data, which the
+	// linker will relocate; the rest is the size, the code page and a reserved
+	// word.
+	writeEntry := func(l *leaf) {
+		for buf.Len() < dataEntryOffset[l] {
+			buf.WriteByte(0)
+		}
+		var e [dataEntryLen]byte
+		// A placeholder: the address is only known once the linker has placed the
+		// section, and WriteObject writes the relocation that fills it in.
+		binary.LittleEndian.PutUint32(e[0:], uint32(dataOffset[l]))
+		binary.LittleEndian.PutUint32(e[4:], uint32(len(l.data)))
+		binary.LittleEndian.PutUint32(e[8:], 0) // code page: unicode
+		binary.LittleEndian.PutUint32(e[12:], 0)
+		buf.Write(e[:])
+	}
+	for _, l := range groupLeaves {
+		writeEntry(l)
+	}
+	for _, l := range imageLeaves {
+		writeEntry(l)
+	}
+
+	for _, l := range groupLeaves {
+		for buf.Len() < dataOffset[l] {
+			buf.WriteByte(0)
+		}
+		buf.Write(l.data)
+	}
+	for _, l := range imageLeaves {
+		for buf.Len() < dataOffset[l] {
 			buf.WriteByte(0)
 		}
 		buf.Write(l.data)
@@ -226,23 +274,39 @@ func (t *resourceTree) bytes() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// findNode returns the node with a given path, which the builder has already
+// splitLeaves separates the icon images from the group icon.
+//
+// They are laid out in two groups rather than interleaved so a failure to write
+// either one is visible as a gap rather than as a plausible-looking sequence of
+// bytes in the wrong place.
+func splitLeaves(leaves []*leaf) (images, groups []*leaf) {
+	for _, l := range leaves {
+		if l.typ == rtIcon {
+			images = append(images, l)
+		} else {
+			groups = append(groups, l)
+		}
+	}
+	return images, groups
+}
+
+// findDir returns the directory with a given path, which the builder has already
 // created: entries are written from the parents, and every parent knows its
 // children because the tree was built from them.
-func findNode(nodes []*node, want *node) *node {
-	for _, n := range nodes {
-		if len(n.path) != len(want.path) {
+func findDir(dirs []*node, want *node) *node {
+	for _, d := range dirs {
+		if len(d.path) != len(want.path) {
 			continue
 		}
 		same := true
-		for i := range n.path {
-			if n.path[i] != want.path[i] {
+		for i := range d.path {
+			if d.path[i] != want.path[i] {
 				same = false
 				break
 			}
 		}
 		if same {
-			return n
+			return d
 		}
 	}
 	return want

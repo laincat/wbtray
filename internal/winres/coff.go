@@ -32,28 +32,28 @@ const (
 // Section characteristics for .rsrc: initialised data, readable and writable,
 // four-byte aligned.
 //
-// MEM_WRITE (0x80000000) is the one that matters, and its absence is why the
-// icon was missing from every build before this was fixed. The flags were
-// MEM_DISCARDABLE, which is what an object compiler emits for a section the
-// loader may throw away after use — and Go's linker, reading a resource section
-// it may discard, treats the data as something no image needs and drops it. The
-// executable then has no resource directory at all, so Windows falls back to its
-// generic blank icon and the .syso looks like it did nothing.
+// These flags are not decoration: Go's linker selects the sections it keeps by
+// reading them. Two of its checks matter here, both in cmd/link/internal/loadpe.
 //
-// Go's own linker test fixtures carry exactly 0xC0300040 for this section
-// (MEM_READ | MEM_WRITE | CNT_INITIALIZED_DATA | ALIGN_4BYTES), which is what an
-// icon resource has to look like to survive the link.
+// A section marked MEM_DISCARDABLE is skipped outright when the loader creates
+// its symbols — the loader assumes data the OS may throw away after use is not
+// something the image needs. The section then has no symbol, addpersrc finds no
+// resource to add, and the executable ships with no resource directory at all:
+// Windows falls back to its generic blank icon and the .syso looks like it did
+// nothing. That is what every build before this fix did.
+//
+// The remaining flags have to name a section type the loader recognises, because
+// anything it cannot classify is an error rather than a guess. The combination
+// below is the one it reads as plain initialised data, and it is the combination
+// Go's own linker test fixtures carry for this section.
 const sectionCharacteristics = 0x00000040 | // CNT_INITIALIZED_DATA
 	0x40000000 | // MEM_READ
 	0x80000000 | // MEM_WRITE
 	0x00300000 // ALIGN_4BYTES
 
-// relocationType is IMAGE_REL_AMD64_ADDR32NB (and its ARM64 twin): the
-// "32-bit image-base-relative address" relocation a resource directory needs.
-//
-// Resource directories store offsets that Windows rewrites into virtual
-// addresses when the image loads, so each one has to be relocated. ADDR32NB is
-// the right one on every 64-bit Windows target at this width.
+// relocationType is IMAGE_REL_AMD64_ADDR32NB (and its ARM64 twin), which is what
+// Go's linker expects for the address field of a resource data entry: a 32-bit
+// value relative to the image base, filled in once the section has been placed.
 const relocationType = 0x0003
 
 // WriteObject renders a .rsrc section into a COFF object for one machine.
@@ -150,11 +150,20 @@ func WriteObject(machine uint16, rsrc []byte) ([]byte, error) {
 
 // findRelocations returns the offsets that need an ADDR32NB relocation.
 //
-// A resource directory stores its own size and offsets in the first four bytes
-// of every directory, and those offsets are the fields Windows rewrites at load
-// time. The table lives at the top of the section, so the tree is walked the
-// same way the loader walks it, recording each directory's offset field. Leaves
-// hold raw bytes and are not relocated.
+// Exactly one kind of field in a resource section is relocated, and picking the
+// wrong kind is why an icon can be embedded and still not appear:
+//
+//   - A resource *directory* entry holds an offset from the start of the section.
+//     The loader adds the section's base address itself, so the value in the file
+//     is already correct and must not be touched.
+//   - An IMAGE_RESOURCE_DATA_ENTRY holds a virtual address. It cannot be known
+//     when the object is written, so it is emitted as an offset and a relocation
+//     has the linker add the section's address to it.
+//
+// Relocating the directory entries instead — which is what this did — leaves the
+// tree looking perfect and every leaf pointing at a plausible address shifted by
+// the section base. Windows follows one, finds image bytes where a data entry
+// should be, discards the resource, and shows its generic icon.
 func findRelocations(rsrc []byte) []int {
 	var offsets []int
 	var walk func(off int)
@@ -165,7 +174,6 @@ func findRelocations(rsrc []byte) []int {
 		if off+16 > len(rsrc) {
 			return
 		}
-		offsets = append(offsets, off)
 		named := int(binary.LittleEndian.Uint16(rsrc[off+12:]))
 		ids := int(binary.LittleEndian.Uint16(rsrc[off+14:]))
 		for i := 0; i < named+ids; i++ {
@@ -174,11 +182,16 @@ func findRelocations(rsrc []byte) []int {
 				return
 			}
 			target := binary.LittleEndian.Uint32(rsrc[entry+4:])
-			// The high bit marks a subdirectory; without it the entry points at
-			// a leaf, whose data the loader does not relocate.
 			if target&0x80000000 != 0 {
+				// A subdirectory. Its entries hold offsets from the start of the
+				// section, which the loader translates itself, so nothing in it is
+				// relocated.
 				walk(int(target & 0x7fffffff))
+				continue
 			}
+			// A data entry. The field to relocate is the address at the start of
+			// it, not the entry itself.
+			offsets = append(offsets, int(target&0x7fffffff))
 		}
 	}
 	walk(0)

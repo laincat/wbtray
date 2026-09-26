@@ -17,8 +17,8 @@ func referenceSyso() string {
 	for _, p := range []string{
 		"/usr/local/go/src/cmd/link/testdata/pe-binutils/rsrc_amd64.syso",
 		"/usr/lib/go/src/cmd/link/testdata/pe-binutils/rsrc_amd64.syso",
-		`C:\\Program Files\\Go\\src\\cmd\\link\\testdata\\pe-binutils\\rsrc_amd64.syso`,
-		`C:\\Go\\src\\cmd\\link\\testdata\\pe-binutils\\rsrc_amd64.syso`,
+		`C:\Program Files\Go\src\cmd\link\testdata\pe-binutils\rsrc_amd64.syso`,
+		`C:\Go\src\cmd\link\testdata\pe-binutils\rsrc_amd64.syso`,
 	} {
 		if _, err := os.Stat(p); err == nil {
 			return p

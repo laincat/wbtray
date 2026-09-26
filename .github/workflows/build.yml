@@ -69,6 +69,18 @@ jobs:
           Set-Content -Path dist/version.txt -Value $version -NoNewline
           Get-Item dist/wbtray.exe | Select-Object Name, Length
 
+      # The icon is the one part of this build that compiles without complaint
+      # and can still be wrong. A resource section the linker drops, a tree
+      # missing its root, or an image in a format Windows does not accept below
+      # 256x256 all produce an executable that builds, runs, and quietly shows
+      # the system's generic icon. Three releases shipped that way. The test
+      # reads the built file the way Windows reads it, so it fails here instead.
+      - name: Check the executable carries its icon
+        shell: pwsh
+        run: |
+          $env:WBTRAY_BUILT_EXE = (Resolve-Path dist/wbtray.exe).Path
+          go test ./internal/winres -run TestBuiltExecutable -v
+
       # The tray updates itself by downloading this archive, so the archive is
       # the release. A bare .exe beside a manifest of other files would work for
       # a person downloading it by hand and not for the updater, which has to

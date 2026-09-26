@@ -12,10 +12,10 @@ import (
 )
 
 // TestBuiltExecutableCarriesTheIcon reads the resource directory out of a built
-// wbtray.exe and checks the icon is reachable through it exactly as Windows
-// would reach it.
+// wbtray.exe and checks the icon is reachable through it exactly as Windows would
+// reach it.
 //
-// This is the end-to-end check the earlier bug slipped past. The unit tests below
+// This is the end-to-end check the earlier bugs slipped past. The unit tests
 // verify the section this package builds; this one verifies that the section
 // survives the linker and lands in the executable's data directory, which is
 // where it was previously dropped — first because the section was marked
@@ -23,8 +23,7 @@ import (
 // the executable simply had no icon.
 //
 // It is skipped unless WBTRAY_BUILT_EXE names an executable, because the test
-// cannot build one itself without a Go toolchain on the path and a source tree
-// to build.
+// cannot build one itself without a source tree to build.
 //
 //	$env:WBTRAY_BUILT_EXE = "dist\wbtray.exe"
 //	go test ./internal/winres -run TestBuiltExecutable -v
@@ -38,7 +37,7 @@ func TestBuiltExecutableCarriesTheIcon(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	section := rsrcSection(t, b)
+	section, base := rsrcSection(t, b)
 	root := readDir(t, section, 0)
 
 	// The root has to name resource types. This is the check that fails when the
@@ -61,10 +60,10 @@ func TestBuiltExecutableCarriesTheIcon(t *testing.T) {
 		t.Fatalf("the executable's resource root names %v, with no RT_ICON", ids(root))
 	}
 
-	// Walk down to the group's data the way the loader does: the group's node
-	// holds one name, that name holds a language, and the language's single entry
-	// points at the bytes.
-	groupData := dataOf(t, section, *groupNode)
+	// Walk down to the group's data the way the loader does: the group's type node
+	// holds one name, that name holds a language, and the language names a data
+	// entry holding the bytes.
+	groupData := dataOf(t, section, *groupNode, base)
 	if len(groupData) < 6 {
 		t.Fatalf("the group icon's data is %d bytes, too short for a header", len(groupData))
 	}
@@ -73,11 +72,11 @@ func TestBuiltExecutableCarriesTheIcon(t *testing.T) {
 		t.Errorf("the group lists %d images; a taskbar icon should have several sizes", count)
 	}
 
-	// Every image the group names has to exist as an RT_ICON leaf and decode as
-	// the PNG it was written as.
+	// Every image the group names has to exist as an RT_ICON leaf and decode at
+	// the size the group claims.
 	images := map[uint32][]byte{}
 	for _, nm := range readDir(t, section, int(iconNode.offset)) {
-		images[nm.id] = dataOf(t, section, nm)
+		images[nm.id] = dataOf(t, section, nm, base)
 	}
 	for i := 0; i < count; i++ {
 		e := groupData[6+14*i:]
@@ -103,8 +102,75 @@ func TestBuiltExecutableCarriesTheIcon(t *testing.T) {
 	}
 }
 
-// rsucSection returns the .rsrc section of a PE image.
-func rsrcSection(t *testing.T, b []byte) []byte {
+// TestBuiltExecutableDataEntriesAreRelocated checks the field the linker is
+// supposed to fill in.
+//
+// A resource data entry holds the address of the resource, and an address cannot
+// be known until the linker has placed the section. The object therefore carries
+// a section-relative offset plus a relocation, and a linked image must carry an
+// address in the section's range instead. When that relocation is missing — or
+// when it is applied to the directory entries rather than to the data entries —
+// the tree still parses perfectly and every leaf points somewhere plausible that
+// is wrong, so Windows shows its generic icon.
+//
+// The check is worth having because it is the one failure mode that looks right
+// from every other angle.
+func TestBuiltExecutableDataEntriesAreRelocated(t *testing.T) {
+	path := os.Getenv("WBTRAY_BUILT_EXE")
+	if path == "" {
+		t.Skip("set WBTRAY_BUILT_EXE to the built executable")
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	section, rva := rsrcSection(t, b)
+	if rva == 0 {
+		t.Fatal("the resource directory is at address zero")
+	}
+
+	checked := 0
+	// Every type below the root, then every name, then the language level, which
+	// is where the data entries are.
+	for _, ty := range readDir(t, section, 0) {
+		if !ty.isDir {
+			continue
+		}
+		for _, name := range readDir(t, section, int(ty.offset)) {
+			if !name.isDir {
+				continue
+			}
+			for _, lang := range readDir(t, section, int(name.offset)) {
+				if lang.isDir {
+					t.Errorf("%s/%d's language entry is a directory, not a data entry",
+						kindOf(ty.id), name.id)
+					continue
+				}
+				e := readDataEntry(t, section, int(lang.offset))
+				if e.size == 0 {
+					t.Errorf("%s/%d's data entry is empty", kindOf(ty.id), name.id)
+				}
+				if e.address < rva || e.address+uint32(e.size) > rva+uint32(len(section)) {
+					t.Errorf("%s/%d's data entry names %d bytes at %#x, outside the "+
+						"resource section at %#x for %d bytes; the linker did not "+
+						"relocate it", kindOf(ty.id), name.id, e.size, e.address,
+						rva, len(section))
+				}
+				checked++
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("the executable's tree holds no data entries")
+	}
+	t.Logf("checked %d data entries in a section at %#x for %d bytes", checked, rva, len(section))
+}
+
+// rsrcSection returns the .rsrc section of a PE image and the address it sits at.
+//
+// The address matters: a data entry inside the section holds a virtual address,
+// so it can only be read by subtracting the section's own address from it.
+func rsrcSection(t *testing.T, b []byte) ([]byte, uint32) {
 	t.Helper()
 	pe := int(binary.LittleEndian.Uint32(b[0x3C:]))
 	magic := binary.LittleEndian.Uint16(b[pe+24:])
@@ -118,7 +184,7 @@ func rsrcSection(t *testing.T, b []byte) []byte {
 		t.Fatal("the executable has no resource directory")
 	}
 
-	// Map the RVA to a file offset through the section table.
+	// Map the address to a file offset through the section table.
 	nsec := int(binary.LittleEndian.Uint16(b[pe+6:]))
 	optSize := int(binary.LittleEndian.Uint16(b[pe+20:]))
 	st := pe + 24 + optSize
@@ -132,94 +198,42 @@ func rsrcSection(t *testing.T, b []byte) []byte {
 			if off+int(size) > len(b) {
 				t.Fatalf("the resource directory runs past the file")
 			}
-			return b[off : off+int(size)]
+			return b[off : off+int(size)], rva
 		}
 	}
 	t.Fatal("the resource directory's address is not inside any section")
-	return nil
+	return nil, 0
 }
 
 // dataOf follows a resource node down to the bytes it holds.
 //
-// A node's children are directories until the last level: a type holds names, a
-// name holds languages, and a language holds the single entry that points at the
-// data. Reading a language's entry as if it were another directory is how the
-// first version of this reader failed.
-// dataOf follows a resource node down to the bytes it holds.
-//
 // It descends while the entries it finds are directories and stops at the one
-// that points at data, rather than assuming a fixed depth. That matters because
-// the caller hands it either a type node or a name node depending on what it is
-// looking for, and counting levels by hand is how this reader first went wrong:
-// one readDir too many, and a few bytes of PNG decoded as a directory header
-// claiming 39565 entries.
-func dataOf(t *testing.T, section []byte, node entry) []byte {
+// that points at a data entry, rather than assuming a fixed depth. That matters
+// because the caller hands it either a type node or a name node depending on what
+// it is looking for, and counting levels by hand is how this reader first went
+// wrong: one readDir too many, and a few bytes of image decoded as a directory
+// header claiming thousands of entries.
+func dataOf(t *testing.T, section []byte, node entry, base uint32) []byte {
 	t.Helper()
 	cur := node
-	// The format fixes the depth at four levels below the root, so this cannot
-	// loop for ever; the bound also turns a malformed section into a failure
-	// rather than a hang.
-	for level := 0; level < 4; level++ {
+	// The format fixes the depth, so this cannot loop for ever; the bound also
+	// turns a malformed section into a failure rather than a hang.
+	for level := 0; level < 3; level++ {
 		entries := readDir(t, section, int(cur.offset))
 		if len(entries) == 0 {
 			t.Fatalf("resource %d has an empty directory at level %d", node.id, level)
 		}
-		// One child per level: resources are addressed by type, name and
-		// language, and this walk has no choice to make.
+		// Resources are addressed by type, name and language, so this walk has no
+		// choice to make at any level.
 		next := entries[0]
-		if !next.isDir {
-			start := next.offset
-			// The leaf's length is the next leaf's offset: the resource
-			// directory does not record it, and Windows reads it the same way.
-			end := uint32(len(section))
-			if after := findNextLeaf(section, start); after > start {
-				end = after
-			}
-			if int(start) > len(section) || int(end) > len(section) || end < start {
-				t.Fatalf("resource %d's data runs past the section", node.id)
-			}
-			return section[start:end]
+		if next.isDir {
+			cur = next
+			continue
 		}
-		cur = next
+		return leafDataAt(t, section, next, base)
 	}
 	t.Fatalf("resource %d is nested deeper than a resource tree can be", node.id)
 	return nil
-}
-
-// findNextLeaf returns the lowest data offset above off, which bounds a leaf
-// whose length is not recorded.
-func findNextLeaf(section []byte, off uint32) uint32 {
-	best := uint32(len(section))
-	// The walk is bounded by depth because only three levels of the tree are
-	// directories. Below that an entry points at data, and reading that data as
-	// though it were another directory is how this went wrong the first time: a
-	// few bytes of PNG decoded as an entry count and the walk ran off the end.
-	var walk func(nodeOff, depth int)
-	walk = func(nodeOff, depth int) {
-		if depth >= 3 || nodeOff+16 > len(section) {
-			return
-		}
-		named := binary.LittleEndian.Uint16(section[nodeOff+12:])
-		ids := binary.LittleEndian.Uint16(section[nodeOff+14:])
-		for i := 0; i < int(named)+int(ids); i++ {
-			at := nodeOff + 16 + 8*i
-			if at+8 > len(section) {
-				return
-			}
-			e := section[at:]
-			addr := binary.LittleEndian.Uint32(e[4:])
-			target := addr & 0x7fffffff
-			if addr&0x80000000 != 0 {
-				walk(int(target), depth+1)
-				continue
-			}
-			if target > off && target < best {
-				best = target
-			}
-		}
-	}
-	walk(0, 0)
-	return best
 }
 
 // ids lists the resource types a root names, for a failure message.
@@ -248,7 +262,7 @@ func TestBuiltExecutableIconIsNotBlank(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	section := rsrcSection(t, b)
+	section, base := rsrcSection(t, b)
 	root := readDir(t, section, 0)
 	var iconNode *entry
 	for i := range root {
@@ -262,8 +276,7 @@ func TestBuiltExecutableIconIsNotBlank(t *testing.T) {
 
 	checked := 0
 	for _, nm := range readDir(t, section, int(iconNode.offset)) {
-		data := dataOf(t, section, nm)
-		img, err := decodeIconImage(data)
+		img, err := decodeIconImage(dataOf(t, section, nm, base))
 		if err != nil {
 			t.Errorf("image %d does not decode: %v", nm.id, err)
 			continue
