@@ -29,11 +29,23 @@ const (
 	MachineI386  = 0x014c
 )
 
-// Section characteristics for .rsrc: initialised data, readable, and
-// discardable once the resource directory has been copied into the image.
+// Section characteristics for .rsrc: initialised data, readable and writable,
+// four-byte aligned.
+//
+// MEM_WRITE (0x80000000) is the one that matters, and its absence is why the
+// icon was missing from every build before this was fixed. The flags were
+// MEM_DISCARDABLE, which is what an object compiler emits for a section the
+// loader may throw away after use — and Go's linker, reading a resource section
+// it may discard, treats the data as something no image needs and drops it. The
+// executable then has no resource directory at all, so Windows falls back to its
+// generic blank icon and the .syso looks like it did nothing.
+//
+// Go's own linker test fixtures carry exactly 0xC0300040 for this section
+// (MEM_READ | MEM_WRITE | CNT_INITIALIZED_DATA | ALIGN_4BYTES), which is what an
+// icon resource has to look like to survive the link.
 const sectionCharacteristics = 0x00000040 | // CNT_INITIALIZED_DATA
 	0x40000000 | // MEM_READ
-	0x02000000 | // MEM_DISCARDABLE
+	0x80000000 | // MEM_WRITE
 	0x00300000 // ALIGN_4BYTES
 
 // relocationType is IMAGE_REL_AMD64_ADDR32NB (and its ARM64 twin): the
