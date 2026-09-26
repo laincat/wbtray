@@ -58,9 +58,9 @@ func run(arch string) error {
 		return err
 	}
 
-	// The file icon is drawn in the default palette and style, on the plate the
-	// tray would use: it is the product's mark rather than a status reading, and
-	// a status reading baked into a file icon would be a lie by the next day.
+	// The file icon is drawn in the default palette and style: it is the product's
+	// mark rather than a status reading, and a status reading baked into a file
+	// icon would be a lie by the next day.
 	images := make([]winres.IconData, 0, len(sizes))
 	for _, size := range sizes {
 		c := iconstyle.Draw(iconstyle.View{

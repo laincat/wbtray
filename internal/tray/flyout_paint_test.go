@@ -60,11 +60,11 @@ func sampleMenu() []traymenu.Item {
 	}
 }
 
-// TestPaintMenuProducesAPlate checks the painter runs and fills a plausible area
+// TestPaintMenuProducesASurface checks the painter runs and fills a plausible area
 // of the canvas, which is the part a layout error would break silently: a menu
 // laid out with a zero width paints nothing and looks, from the outside, exactly
 // like a menu that failed to open.
-func TestPaintMenuProducesAPlate(t *testing.T) {
+func TestPaintMenuProducesASurface(t *testing.T) {
 	items := sampleMenu()
 	f := &flyout{hover: -1, pressed: -1, subOwner: 5}
 	// The layout is computed from the model exactly as it is when the menu opens.

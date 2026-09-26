@@ -149,7 +149,7 @@ func TestIconRendersForEveryStyleAndTheme(t *testing.T) {
 							}
 						}
 					}
-					// Every style paints something: a plate, a ring, a glyph.
+					// Every style paints something: a halo, a ring, a glyph.
 					if opaque < size*size/12 {
 						t.Errorf("%s/%s/%s at %d is nearly empty (%d pixels)",
 							th.Name, style, metric, size, opaque)

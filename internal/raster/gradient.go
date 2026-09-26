@@ -2,33 +2,8 @@ package raster
 
 import "math"
 
-// RoundedRectGradient fills a rounded rectangle with a vertical gradient, which
-// is what gives a plate its depth without a second image asset.
-func (c *Canvas) RoundedRectGradient(x, y, w, h, r float64, top, bottom RGBA) {
-	if w <= 0 || h <= 0 {
-		return
-	}
-	if r > w/2 {
-		r = w / 2
-	}
-	if r > h/2 {
-		r = h / 2
-	}
-	if r < 0 {
-		r = 0
-	}
-	c.eachPixel(x, y, x+w, y+h, func(ix, iy int, px, py float64) {
-		dx := math.Max(math.Max(x+r-px, px-(x+w-r)), 0)
-		dy := math.Max(math.Max(y+r-py, py-(y+h-r)), 0)
-		if dx*dx+dy*dy > r*r {
-			return
-		}
-		t := (py - y) / h
-		c.blend(ix, iy, top.Mix(bottom, t))
-	})
-}
-
-// StrokeRoundedRect outlines a rounded rectangle with the given line width.
+// StrokeRoundedRect outlines a rounded rectangle with the given line width, which
+// is how the drawn menu gets the frame that separates it from the desktop.
 func (c *Canvas) StrokeRoundedRect(x, y, w, h, r, width float64, v RGBA) {
 	if w <= 0 || h <= 0 || width <= 0 || v.A == 0 {
 		return

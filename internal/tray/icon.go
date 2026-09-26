@@ -130,8 +130,8 @@ type Callbacks struct {
 	DoubleClick func()
 	// Tick runs on the tooltip refresh timer.
 	Tick func()
-	// ThemeColor is the accent the icon's plate should use right now, which the
-	// flyout's previews read so they match the live icon.
+	// IconView renders the tray icon at a given size. The flyout asks for it
+	// while painting, so the menu's own mark matches the live one.
 	IconView func(size int) *raster.Canvas
 	// StylePreview renders one style at a requested size, so the menu's style
 	// gallery draws the icon it is offering rather than rescaling a smaller one.

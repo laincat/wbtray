@@ -177,9 +177,6 @@ func writeSmall(path string, variants []variantTheme, styles []string, snap stat
 		paste(img, label, gap, labelH+r*cellH+8)
 
 		for c, style := range styles {
-			if !styleAllowed(th, style) {
-				continue
-			}
 			if r == 0 {
 				name := raster.New(cellW, labelH-8)
 				name.Text(4, 2, 1.6, style, raster.RGBA{R: 0x14, G: 0x17, B: 0x1f, A: 0xff})
@@ -207,13 +204,6 @@ func writeSmall(path string, variants []variantTheme, styles []string, snap stat
 		return
 	}
 	fmt.Printf("wrote %s (%dx%d)\n", path, width, height)
-}
-
-func styleAllowed(th theme.Theme, style string) bool {
-	// Every palette draws every style, so the gallery has no holes. The
-	// parameter is kept because the sheets are laid out by theme and a future
-	// palette that really cannot draw one would want the hook.
-	return true
 }
 
 func paste(dst *image.RGBA, src *raster.Canvas, x, y int) {

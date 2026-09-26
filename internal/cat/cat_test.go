@@ -36,7 +36,7 @@ func TestDrawPaintsInsideTheBox(t *testing.T) {
 
 // TestFaceIsKnockedOut checks that the eyes really are holes rather than dark
 // spots: what shows through them has to be the colour behind the cat, which is
-// what makes the tray's plate visible inside the face.
+// what makes the tray's halo visible inside the face.
 func TestFaceIsKnockedOut(t *testing.T) {
 	const size = 200
 	bg := raster.RGBA{R: 0x11, G: 0x22, B: 0x33, A: 0xff}

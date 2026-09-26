@@ -50,15 +50,15 @@ const (
 	mouthWd = 34.0
 )
 
-// Palette is the colours one drawing uses. Inner is the colour drawn through
-// the eyes and mouth: the face is a knockout, so what shows there is whatever
-// is behind the cat, which inside the tray is the plate.
+// Palette is the colours one drawing uses. Inner is the colour drawn through the
+// eyes and mouth: the face is a knockout, so what shows there is whatever is
+// behind the cat — inside the tray, the halo the whole mark sits on.
 type Palette struct {
 	Fur   raster.RGBA
 	Inner raster.RGBA
 	Blush raster.RGBA
-	// Halo is stroked around the silhouette when it is set. A cat drawn on a
-	// transparent taskbar needs it; one drawn on a plate does not.
+	// Halo is stroked around the silhouette when it is set, which is what keeps a
+	// light cat apart from a light taskbar behind it.
 	Halo     raster.RGBA
 	HaloW    float64
 	CheeksOn bool
