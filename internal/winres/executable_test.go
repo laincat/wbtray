@@ -3,6 +3,9 @@ package winres
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
+	"image"
+	"image/color"
 	"image/png"
 	"os"
 	"testing"
@@ -84,9 +87,9 @@ func TestBuiltExecutableCarriesTheIcon(t *testing.T) {
 			t.Errorf("the group refers to image %d, which the resource tree does not hold", id)
 			continue
 		}
-		img, err := png.Decode(bytes.NewReader(pixels))
+		img, err := decodeIconImage(pixels)
 		if err != nil {
-			t.Errorf("image %d does not decode as a PNG: %v", id, err)
+			t.Errorf("image %d does not decode: %v", id, err)
 			continue
 		}
 		want := int(e[0])
@@ -226,4 +229,109 @@ func ids(root []entry) []uint32 {
 		out = append(out, e.id)
 	}
 	return out
+}
+
+// TestBuiltExecutableIconIsNotBlank decodes the images out of a built executable
+// and checks they carry the artwork rather than a flat colour.
+//
+// It is the check that distinguishes "the icon is embedded" from "the icon is the
+// right icon". An executable whose resource tree is correct but whose images
+// Windows cannot decode shows the system's generic application icon — blue
+// rectangles on a white page — which is indistinguishable, in a file manager,
+// from a binary that never had an icon at all.
+func TestBuiltExecutableIconIsNotBlank(t *testing.T) {
+	path := os.Getenv("WBTRAY_BUILT_EXE")
+	if path == "" {
+		t.Skip("set WBTRAY_BUILT_EXE to the built executable")
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	section := rsrcSection(t, b)
+	root := readDir(t, section, 0)
+	var iconNode *entry
+	for i := range root {
+		if root[i].id == rtIcon {
+			iconNode = &root[i]
+		}
+	}
+	if iconNode == nil {
+		t.Fatal("the executable has no RT_ICON")
+	}
+
+	checked := 0
+	for _, nm := range readDir(t, section, int(iconNode.offset)) {
+		data := dataOf(t, section, nm)
+		img, err := decodeIconImage(data)
+		if err != nil {
+			t.Errorf("image %d does not decode: %v", nm.id, err)
+			continue
+		}
+		colours := map[uint32]bool{}
+		bounds := img.Bounds()
+		for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+			for x := bounds.Min.X; x < bounds.Max.X; x++ {
+				r, g, bl, a := img.At(x, y).RGBA()
+				if a == 0 {
+					continue
+				}
+				colours[uint32(r>>8)<<16|uint32(g>>8)<<8|uint32(bl>>8)] = true
+			}
+		}
+		// The mascot is drawn in a palette with anti-aliased edges, so a real
+		// image has dozens of colours. A blank or flat one has a handful, which
+		// means the artwork did not survive the encoding.
+		if len(colours) < 8 {
+			t.Errorf("image %d has only %d distinct colours; the artwork did not survive",
+				nm.id, len(colours))
+		}
+		checked++
+	}
+	if checked == 0 {
+		t.Fatal("no images were checked")
+	}
+	t.Logf("checked %d images", checked)
+}
+
+// decodeIconImage decodes one icon image, PNG or DIB.
+func decodeIconImage(data []byte) (image.Image, error) {
+	if bytes.HasPrefix(data, []byte{0x89, 'P', 'N', 'G'}) {
+		return png.Decode(bytes.NewReader(data))
+	}
+	return decodeIconDIB(data)
+}
+
+// decodeIconDIB reads a 32-bit icon DIB back into an image, which is what Windows
+// does with it.
+func decodeIconDIB(data []byte) (image.Image, error) {
+	if len(data) < DIBHeaderSize {
+		return nil, fmt.Errorf("only %d bytes, too short for a DIB header", len(data))
+	}
+	w := int(int32(binary.LittleEndian.Uint32(data[4:])))
+	h := int(int32(binary.LittleEndian.Uint32(data[8:])))
+	if w <= 0 || h <= 0 {
+		return nil, fmt.Errorf("the header says %dx%d", w, h)
+	}
+	// The height covers the colour image and the AND mask stacked, so the picture
+	// is half of it.
+	half := h / 2
+	if half != w {
+		return nil, fmt.Errorf("the header is %dx%d, which is not a square icon with a mask", w, h)
+	}
+	rows := data[DIBHeaderSize:]
+	if len(rows) < w*4*half {
+		return nil, fmt.Errorf("the pixel data is %d bytes, want %d", len(rows), w*4*half)
+	}
+	img := image.NewNRGBA(image.Rect(0, 0, w, half))
+	// Bottom-up, as a DIB is.
+	for y := 0; y < half; y++ {
+		row := rows[(half-1-y)*w*4:]
+		for x := 0; x < w; x++ {
+			img.SetNRGBA(x, y, color.NRGBA{
+				R: row[x*4+2], G: row[x*4+1], B: row[x*4+0], A: row[x*4+3],
+			})
+		}
+	}
+	return img, nil
 }

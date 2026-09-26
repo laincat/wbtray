@@ -16,15 +16,13 @@
 package main
 
 import (
-	"bytes"
 	"flag"
 	"fmt"
-	"image/png"
+	"image"
 	"os"
 	"path/filepath"
 
 	"wbtray/internal/iconstyle"
-	"wbtray/internal/raster"
 	"wbtray/internal/status"
 	"wbtray/internal/theme"
 	"wbtray/internal/winres"
@@ -61,7 +59,9 @@ func run(arch string) error {
 	// The file icon is drawn in the default palette and style: it is the product's
 	// mark rather than a status reading, and a status reading baked into a file
 	// icon would be a lie by the next day.
-	images := make([]winres.IconData, 0, len(sizes))
+	// The rendered icons, keyed by size, so the encoder can pick the format each
+	// size requires.
+	rendered := map[int]image.Image{}
 	for _, size := range sizes {
 		c := iconstyle.Draw(iconstyle.View{
 			Size:   size,
@@ -71,17 +71,14 @@ func run(arch string) error {
 			Theme:  theme.Neon(),
 			Snap:   sampleState(),
 		})
-		pngBytes, err := encodePNG(c)
-		if err != nil {
-			return fmt.Errorf("encode %dx%d: %w", size, size, err)
-		}
-		images = append(images, winres.IconData{
-			// The directory stores the dimension in one byte, and 256 has no
-			// representation other than zero.
-			Width:  byteOf(size),
-			Height: byteOf(size),
-			Bytes:  pngBytes,
-		})
+		rendered[size] = c.Image()
+	}
+	// The encoder decides PNG or DIB per size, which is a rule of the format
+	// rather than a choice: an icon whose smaller images are PNG is not rejected,
+	// it simply shows the system's generic icon everywhere.
+	images, err := winres.EncodeIconData(rendered, sizes)
+	if err != nil {
+		return err
 	}
 
 	rsrc, err := winres.BuildIconResources(images, 1)
@@ -107,14 +104,6 @@ func byteOf(size int) byte {
 		return 0
 	}
 	return byte(size)
-}
-
-func encodePNG(c *raster.Canvas) ([]byte, error) {
-	var buf bytes.Buffer
-	if err := png.Encode(&buf, c.Image()); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
 }
 
 // sampleState is a healthy pool, so the mark is drawn with a full gauge rather
