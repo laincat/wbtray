@@ -46,6 +46,20 @@ const (
 	IDOpenFolder = 2611
 	// IDOpenLogs opens the gateway's log folder.
 	IDOpenLogs = 2612
+	// IDUpdateGateway downloads and installs the newest gateway release.
+	IDUpdateGateway = 2613
+	// IDUpdateTray downloads the newest wbtray and restarts into it.
+	IDUpdateTray = 2614
+	// IDOpenGatewayDir opens the folder the gateway is installed in.
+	IDOpenGatewayDir = 2615
+	// IDInstallGateway downloads a gateway when none is installed.
+	IDInstallGateway = 2616
+	// IDCheckUpdates re-runs the version check now.
+	IDCheckUpdates = 2617
+	// IDLogin opens the panel, for a gateway with no accounts yet.
+	IDLogin = 2618
+	// IDOpenGatewayConfig opens the gateway's own config.json.
+	IDOpenGatewayConfig = 2619
 
 	// Gateway process commands.
 	IDGatewayStart      = 2700

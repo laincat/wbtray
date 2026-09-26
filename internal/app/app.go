@@ -14,6 +14,7 @@ import (
 
 	"wbtray/internal/config"
 	"wbtray/internal/i18n"
+	"wbtray/internal/install"
 	"wbtray/internal/panel"
 	"wbtray/internal/status"
 	"wbtray/internal/theme"
@@ -45,6 +46,9 @@ type Options struct {
 type Gateway interface {
 	// PID reports where the gateway is and whether it is running.
 	PID() status.PIDInfo
+	// AdoptProcess claims a gateway started outside the controller, so the menu
+	// attributes it to wbtray rather than to somebody else.
+	AdoptProcess(pid uint32, exe string)
 	// Start launches it.
 	Start() (uint32, error)
 	// Stop ends it.
@@ -90,6 +94,21 @@ type App struct {
 	gateway Gateway
 	// frontEnd is the running tray, which owns the window and the clock.
 	frontEnd FrontEnd
+	// bootstrapStep is how the gateway was brought up at startup.
+	bootstrapStep install.Step
+	// startedPID is the gateway this process started, or 0.
+	startedPID uint32
+	// startedExe is the path of the gateway this process started.
+	startedExe string
+	// gatewayVersion is the version of the gateway on disk.
+	gatewayVersion string
+	// trayVersion is the running build's own version, set at startup.
+	trayVersion string
+	// updates is what the last version check found.
+	updates UpdateState
+	// gatewayInstalled reports whether wbtray's own copy of the gateway is on
+	// disk, which the front end sets and the menu reads.
+	gatewayInstalled bool
 }
 
 // FrontEnd is what the application asks of the running tray: a tooltip, and a

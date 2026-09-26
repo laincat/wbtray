@@ -16,6 +16,7 @@ import (
 	"wbtray/internal/config"
 	"wbtray/internal/iconstyle"
 	"wbtray/internal/i18n"
+	"wbtray/internal/install"
 	"wbtray/internal/raster"
 	"wbtray/internal/theme"
 	"wbtray/internal/traymenu"
@@ -33,6 +34,13 @@ func run(cfg config.Config, cfgPath string) error {
 	_ = gw
 
 	icon := tray.New("wbtray", tray.Callbacks{})
+	// The renamed build an earlier self-update left behind is removed here, which
+	// is the first moment at which nothing is holding it.
+	install.CleanUpPrevious()
+	lc := &lifecycle{app: a, layout: layoutFor()}
+	a.SetGatewayVersion(lc.layout.InstalledGatewayVersion())
+	a.SetGatewayInstalled(lc.layout.Present())
+	a.SetTrayVersion(version)
 	a.SetTrayAutoStart(autostart.Enabled(), func(on bool) error {
 		return autostart.Set(on)
 	})
@@ -52,7 +60,7 @@ func run(cfg config.Config, cfgPath string) error {
 	})
 	icon.SetCallbacks(tray.Callbacks{
 		Menu:        func() []traymenu.Item { return a.Menu() },
-		Select:      func(ev traymenu.Event) { handleCommand(a, ev) },
+		Select:      func(ev traymenu.Event) { handleCommand(a, lc, ev) },
 		Click:       func() { _ = openURL(a.PanelClient().PanelURL()) },
 		DoubleClick: func() { openChartWindow(a) },
 		// The tray's own timer runs every second and only re-reads the tooltip.
@@ -93,11 +101,15 @@ func run(cfg config.Config, cfgPath string) error {
 	})
 
 	go startTicker(a, stop)
+	go startVersionChecks(a, stop)
 	// The first reading is taken immediately rather than after one interval, so
 	// the icon is correct from the moment it appears instead of showing an empty
 	// gauge for the first few seconds.
 	go func() {
-		a.Refresh()
+		// The gateway is brought up before the first reading, so the tray's first
+		// state is the real one rather than "offline" for a machine where nothing
+		// is wrong.
+		bootstrapGateway(a, lc)
 	}()
 
 	err := icon.Run()
@@ -148,7 +160,11 @@ func renderIconSized(a *app.App, size int) *raster.Canvas {
 }
 
 // handleCommand routes a menu click.
-func handleCommand(a *app.App, ev traymenu.Event) {
+//
+// The lifecycle travels with the application rather than being looked up, so the
+// commands that touch the gateway's installation have the layout and the release
+// state that belong to this run.
+func handleCommand(a *app.App, lc *lifecycle, ev traymenu.Event) {
 	switch {
 	case ev.ID >= app.IDStyleBase && ev.ID < app.IDMetricBase:
 		if name := styleNameForID(ev.ID); name != "" {
@@ -193,6 +209,27 @@ func handleCommand(a *app.App, ev traymenu.Event) {
 		if exe, err := os.Executable(); err == nil {
 			_ = openPath(filepath.Dir(exe))
 		}
+		return
+	case ev.ID == app.IDLogin:
+		_ = openURL(a.PanelClient().PanelURL())
+		return
+	case ev.ID == app.IDOpenGatewayDir:
+		_ = openPath(lc.layout.Gateway)
+		return
+	case ev.ID == app.IDOpenGatewayConfig:
+		_ = openPath(configPathForGateway(lc.layout))
+		return
+	case ev.ID == app.IDInstallGateway:
+		go installGatewayOnDemand(a, lc)
+		return
+	case ev.ID == app.IDUpdateGateway:
+		go updateGateway(a, lc)
+		return
+	case ev.ID == app.IDUpdateTray:
+		go updateTray(a, lc, a.Quit)
+		return
+	case ev.ID == app.IDCheckUpdates:
+		go checkUpdatesNow(a)
 		return
 	case ev.ID == app.IDReload:
 		if err := a.Reload(); err != nil {

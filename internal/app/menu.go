@@ -52,6 +52,14 @@ func (a *App) Menu() []traymenu.Item {
 	items = append(items, traymenu.Separator())
 	items = append(items, a.accountItems(snap, lang))
 	items = append(items, traymenu.Command(IDChartWindow, i18n.T(lang, "menu.chart")))
+	// A gateway that is neither running nor installed is the one situation where
+	// the next thing to do is not discoverable from anywhere in this menu: there
+	// is nothing to inspect and nothing to start. The row goes at the top level
+	// rather than inside the process block, because an operator in that state has
+	// no reason to go looking inside a block about a process that does not exist.
+	if !snap.Process.Found && !a.GatewayInstalled() {
+		items = append(items, traymenu.Command(IDInstallGateway, i18n.T(lang, "menu.install_gateway")))
+	}
 	items = append(items, traymenu.Separator())
 
 	items = append(items,
@@ -66,6 +74,7 @@ func (a *App) Menu() []traymenu.Item {
 		traymenu.Radio(IDClassicMenu, i18n.T(lang, "menu.classic"), cfg.MenuStyle == "native"),
 		traymenu.Separator(),
 		a.gatewayItems(snap, cfg, lang, th),
+		a.updateItems(lang),
 		a.taskItems(lang),
 		traymenu.Separator(),
 		traymenu.Command(IDOpenPanel, i18n.T(lang, "menu.open_panel")),
@@ -277,6 +286,12 @@ func (a *App) gatewayItems(snap status.Snapshot, cfg config.Config, lang string,
 			traymenu.Command(IDGatewayRestart, i18n.T(lang, "gw.restart")),
 			traymenu.Command(IDConsoleToggle, consoleLabel(a, lang)),
 		)
+		if a.NeedsLogin() {
+			// The state a fresh install is in: the gateway is up and serving
+			// nothing, and the one thing to do about it is not obvious from
+			// anywhere else in the menu.
+			children = append(children, traymenu.Command(IDLogin, i18n.T(lang, "menu.login")))
+		}
 		if !pid.Started {
 			children = append(children, traymenu.Value("", i18n.T(lang, "gw.external")))
 		}
@@ -285,10 +300,16 @@ func (a *App) gatewayItems(snap status.Snapshot, cfg config.Config, lang string,
 			traymenu.Command(IDGatewayStart, i18n.T(lang, "gw.start")),
 			traymenu.Check(IDConsoleToggle, i18n.T(lang, "gw.console_show"), cfg.ShowConsole),
 		)
+		if !a.GatewayInstalled() {
+			// Nothing to start, so the useful action is to fetch one.
+			children = append(children, traymenu.Command(IDInstallGateway,
+				i18n.T(lang, "menu.install_gateway")))
+		}
 	}
 	children = append(children,
 		traymenu.Separator(),
 		traymenu.Check(IDGatewayAutoStart, i18n.T(lang, "menu.gw_autostart"), a.gateway.AutoStartEnabled()),
+		traymenu.Command(IDOpenGatewayDir, i18n.T(lang, "menu.open_gateway_dir")),
 	)
 
 	// The block's own label carries the state, and the row's value column carries
@@ -300,6 +321,11 @@ func (a *App) gatewayItems(snap status.Snapshot, cfg config.Config, lang string,
 	if pid.Found {
 		state = ""
 		value = fmt.Sprintf("PID %d", pid.PID)
+	}
+	if a.NeedsLogin() {
+		// The block's label says what the operator has to act on, which for a
+		// gateway with no accounts is not the pid but the missing login.
+		value = i18n.T(lang, "gw.no_accounts_short")
 	}
 	health := status.HealthDown
 	if pid.Found {
@@ -322,6 +348,58 @@ func consoleLabel(a *App, lang string) string {
 		return i18n.T(lang, "gw.console_hide")
 	}
 	return i18n.T(lang, "gw.console_show")
+}
+
+// taskItems is the gateway's maintenance block.
+// updateItems is the version block: what is installed, what is available, and the
+// one action that resolves the difference.
+//
+// The rows are built from the last check rather than from a fresh one, so opening
+// the menu never waits on the network. A check that has not run yet says so, and
+// the row that re-runs it sits right there.
+func (a *App) updateItems(lang string) traymenu.Item {
+	u := a.Updates()
+	installedGW := a.GatewayVersion()
+	installedTray := a.TrayVersion()
+
+	children := []traymenu.Item{}
+
+	// The gateway's row: an action when there is something to do, a statement
+	// when there is not.
+	switch {
+	case u.Checked.IsZero():
+		children = append(children, traymenu.Value(i18n.T(lang, "menu.gateway_version"),
+			i18n.T(lang, "menu.update_checking")))
+	case u.GatewayUpdate:
+		children = append(children, traymenu.Command(IDUpdateGateway,
+			i18n.T(lang, "menu.update_gateway", u.Gateway)))
+	default:
+		children = append(children, traymenu.Value(i18n.T(lang, "menu.gateway_version"),
+			i18n.T(lang, "menu.no_update")))
+	}
+	if installedGW != "" {
+		children = append(children, traymenu.Value("", i18n.T(lang, "menu.installed_ver", installedGW)))
+	}
+
+	// The tray's own row. Updating itself restarts the tray, which is why it is
+	// offered as its own command rather than folded in with the gateway's.
+	if u.TrayUpdate {
+		children = append(children, traymenu.Command(IDUpdateTray,
+			i18n.T(lang, "menu.update_tray", u.Tray)))
+	}
+	children = append(children,
+		traymenu.Separator(),
+		traymenu.Value(i18n.T(lang, "menu.tray_version"), installedTray),
+		traymenu.Command(IDCheckUpdates, i18n.T(lang, "menu.updates")),
+	)
+
+	// An unreachable check is stated in the row rather than hidden: an operator
+	// who wonders why no update is offered deserves to know the check failed.
+	label := i18n.T(lang, "menu.version_block")
+	if u.Err != nil {
+		label = i18n.T(lang, "menu.version_block_failed")
+	}
+	return traymenu.Submenu(label, children)
 }
 
 // taskItems is the gateway's maintenance block.

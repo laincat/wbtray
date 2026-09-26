@@ -1,0 +1,194 @@
+# CNB (cnb.cool) pipeline.
+#
+# This repository is a MIRROR. It builds nothing of its own: every line of code,
+# every tag and every artifact comes from GitHub through a scheduled pull. The
+# point is that a reader in China can clone, browse and download without GitHub
+# being on the path, not that there are two projects to keep in step.
+#
+# GitHub is the only writer. If you are reading this file on CNB and thinking of
+# editing it, edit the GitHub one instead; the next pull overwrites this.
+#
+# Two things happen here:
+#
+#   1. Every hour the git-sync plugin pulls all branches and tags from GitHub and
+#      pushes them here. Force is deliberate: this side has no independent
+#      history to preserve, so a rewritten branch on GitHub must become a
+#      rewritten branch here rather than a divergence to reconcile.
+#
+#   2. When a version tag arrives, the release job fetches that tag's artifacts
+#      from GitHub's release page and re-uploads them here. It does not rebuild
+#      them: the binaries published here are byte-for-byte the ones GitHub
+#      published.
+#
+# The gateway that wbtray drives is not built here either. It travels inside
+# wbtray's own GitHub release, put there by the GitHub workflow, so one mirror
+# covers both projects: the upstream project has no cnb.cool repository of its
+# own, and a reader who cannot reach GitHub would otherwise have no way to obtain
+# the gateway at all.
+
+# The pull. A cron entry is the only trigger that can start a job without a push
+# to this repository, and push is precisely what this repository does not do.
+#
+# Hourly, and the number is a budget decision rather than a taste one. CNB freezes
+# usage in five-minute blocks, so a run costs a full five minutes of one core
+# however short it is, 0.083 core-hours. The free allowance is 160 core-hours a
+# month, and the release jobs bill against the same allowance:
+#
+#     every 15 min   96 runs/day   240 core-hours/month   150% of the allowance
+#     every 30 min   48 runs/day   120 core-hours/month    75%, little left
+#     every 60 min   24 runs/day    60 core-hours/month    38%, comfortable
+#
+# Fifteen minutes would exceed the allowance outright and quietly start charging.
+# Hourly is soon enough for a mirror: wbtray checks for its own updates every six
+# hours, and anyone who wants a release sooner has the button on the repository
+# page and the pipeline below it.
+main:
+  "crontab: 0 * * * *":
+    - name: mirror from github
+      runner:
+        cpus: 1
+      stages:
+        - name: pull all branches and tags
+          image: tencentcom/git-sync
+          settings:
+            # Read-only source, so no credential is needed for a public
+            # repository. A token would only raise the anonymous rate limit, and
+            # one pull an hour never approaches it.
+            target_url: https://github.com/laincat/wbtray.git
+            auth_type: https
+            sync_mode: pull
+            # No force setting here: in pull mode the plugin pushes with --force
+            # unconditionally, so the flag would read as a decision that is not
+            # being made.
+            push_tags: true
+
+# Releases, and the pull on demand.
+#
+# They live under the fallback branch because both are repository-level rather
+# than branch-level: a tag arrives without a branch, and a button on the
+# repository page should work whichever branch happens to be selected when it is
+# pressed.
+#
+# The event names are not free-form. .cnb/web_trigger.yml names each button by
+# event, and a button whose event has no pipeline here does nothing at all — the
+# two files have to agree, which is exactly the kind of thing that silently rots,
+# so they are one commit and this comment is the pointer.
+$:
+  # The pull, on demand. A mirror that only updates on a schedule is hard to trust
+  # at the moment it matters, just after pushing to GitHub, when the question is
+  # whether it has arrived yet. These are the two ways to ask.
+  web_trigger_sync_now:
+    - name: mirror from github now
+      runner:
+        cpus: 1
+      stages:
+        - name: pull all branches and tags
+          image: tencentcom/git-sync
+          settings:
+            target_url: https://github.com/laincat/wbtray.git
+            auth_type: https
+            sync_mode: pull
+            push_tags: true
+
+  api_trigger:
+    - name: mirror from github
+      runner:
+        cpus: 1
+      stages:
+        - name: pull all branches and tags
+          image: tencentcom/git-sync
+          settings:
+            target_url: https://github.com/laincat/wbtray.git
+            auth_type: https
+            sync_mode: pull
+            push_tags: true
+
+  # A tag reaching this repository means GitHub published one, so the job here is
+  # to republish its assets rather than to build anything.
+  tag_push:
+    - name: mirror the release
+      runner:
+        cpus: 1
+      stages:
+        - name: fetch the assets github published
+          image: alpine:3.20
+          script: |
+            set -e
+            apk add --no-cache curl
+            TAG="${CNB_BRANCH}"
+            BASE="https://github.com/laincat/wbtray/releases/download/${TAG}"
+            mkdir -p dist
+
+            # The list is written here rather than discovered, because GitHub
+            # offers no public listing of a release's assets without a token.
+            # It is kept in step with the workflow that publishes them, and a
+            # missing file fails this job loudly rather than producing a release
+            # with something silently absent.
+            ASSETS="wbtray.exe wbtray-${TAG}-windows-amd64.zip workbuddy2api-panel-windows-amd64.zip workbuddy2api-panel-version.txt"
+
+            # Retried, because the tag and its assets do not arrive together on
+            # the other side: the pull can easily run in the minute between
+            # GitHub creating the tag and its workflow finishing the upload.
+            # Without a retry this job would 404 once, fail, and never run again
+            # for that tag, leaving a release that exists on one hosting site
+            # and not the other.
+            fetch_one() {
+              name="$1"
+              attempt=0
+              while :; do
+                if curl -fsSL -o "dist/${name}" "${BASE}/${name}"; then
+                  echo "--- ${name}  $(wc -c < "dist/${name}") bytes"
+                  return 0
+                fi
+                attempt=$((attempt + 1))
+                if [ "$attempt" -ge 10 ]; then
+                  echo "Gave up after ${attempt} attempts: ${BASE}/${name} never appeared." >&2
+                  echo "The GitHub release for ${TAG} may still be building." >&2
+                  return 1
+                fi
+                echo "not published yet (attempt ${attempt}); waiting two minutes"
+                sleep 120
+              done
+            }
+
+            for name in ${ASSETS}; do
+              fetch_one "${name}"
+            done
+
+            ls -l dist
+
+        # The release has to exist before an asset can be attached to it.
+        - name: create the release
+          type: git:release
+          options:
+            title: ${CNB_BRANCH}
+            # Overlay rather than replace. The default is to delete an existing
+            # release and recreate it, which drops the attached assets, so
+            # re-running this job for a tag, which is what the retry above may
+            # need and what the manual button invites, would leave a release
+            # with no downloads on it.
+            overlying: true
+            description: |
+              Mirror of the GitHub release ${CNB_BRANCH}. The files here are
+              byte-for-byte the ones published on GitHub.
+
+              Source: https://github.com/laincat/wbtray
+              Release notes: https://github.com/laincat/wbtray/releases/tag/${CNB_BRANCH}
+
+              This release also carries the Windows build of the gateway that
+              wbtray drives, workbuddy2api-panel-windows-amd64.zip, so that a
+              reader who cannot reach GitHub can obtain both programs from one
+              place. Its version is recorded in
+              workbuddy2api-panel-version.txt.
+
+              Upstream gateway: https://github.com/linguo2625469/workbuddy2api-panel
+            latest: true
+
+        - name: attach the mirrored assets
+          image: cnbcool/attachments:latest
+          settings:
+            attachments:
+              - "./dist/wbtray.exe"
+              - "./dist/wbtray-${CNB_BRANCH}-windows-amd64.zip"
+              - "./dist/workbuddy2api-panel-windows-amd64.zip"
+              - "./dist/workbuddy2api-panel-version.txt"

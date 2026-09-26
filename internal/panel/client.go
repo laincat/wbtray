@@ -66,6 +66,28 @@ func (c *Client) Window() int {
 	return c.hours
 }
 
+// Ping asks the gateway's health endpoint whether it is answering.
+//
+// The health endpoint needs no key and answers 200 or 503 depending on whether
+// the pool can serve, so a response of either kind means the gateway is up. That
+// distinction matters here: a gateway with no accounts is running and ready, and
+// treating its 503 as "not started yet" would make the tray wait out its whole
+// startup window for a gateway that was up the entire time.
+func (c *Client) Ping(ctx context.Context) bool {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+"/healthz", nil)
+	if err != nil {
+		return false
+	}
+	req.Header.Set("User-Agent", "wbtray")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4<<10))
+	return resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusServiceUnavailable
+}
+
 // Base is the gateway root this client talks to.
 func (c *Client) Base() string { return c.base }
 

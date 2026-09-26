@@ -5,6 +5,8 @@ gateway. It shows the pool's health, credits and traffic in the Windows
 notification area, lets the switches that matter be flipped without opening a
 browser, and can start, stop and hide the gateway itself.
 
+**English** | [简体中文](ReadMe_zhCN.md)
+
 ```
    wb2api  :7863   --->   /healthz, /panel/api/*   --->   wbtray
    (the gateway)                                         (this program)
@@ -100,6 +102,37 @@ copied into it: the tray reads the gateway's own `config.json` for the API
 key and the port, so an unpacked copy pointed at a default installation works
 immediately.
 
+### What happens at startup
+
+1. **A `wb2api.exe` process is already running**, whoever started it. Its
+   information is read and it is left alone.
+2. **No process, but a gateway installed in the folder.** It is started.
+3. **Neither.** The newest release is downloaded from GitHub — or from the
+   cnb.cool mirror, automatically, if GitHub cannot be reached — unpacked into
+   `wb2api/` beside `wbtray.exe`, and started.
+
+The folder ends up looking like this:
+
+```
+wbtray/
+  wbtray.exe           the tray
+  wbtray.conf          its settings
+  wb2api/              the gateway, downloaded here
+    wb2api.exe
+    config.json        the gateway's own settings, written on its first run
+    config.example.json
+    auths/             account credentials
+    data/              runtime state
+```
+
+### Adding an account
+
+A gateway that has just started cannot serve anything, because it has no
+accounts. The tray raises a balloon saying so and naming the panel; the menu has
+an "Add an account" row that opens the same page. Log in through the panel the
+way the upstream README describes, and the credentials appear in `auths/`,
+where the tray picks them up and starts reporting.
+
 ```toml
 base_url = http://127.0.0.1:7863   # left at the default, discovery follows the
 api_key =                          # gateway's own configuration
@@ -122,6 +155,38 @@ autostart = false
 ```
 
 Every one of these is also reachable from the menu, which rewrites the file.
+
+## Updates
+
+The tray checks both projects for new versions every six hours, and the menu
+offers a check on demand:
+
+- **The gateway** is downloaded from the upstream release. It is stopped first,
+  and the directory replacement carries `config.json`, `auths/` and
+  `data/` across untouched — **accounts and settings are never lost** — then
+  it is started again.
+- **The tray itself** downloads the new build, replaces itself and restarts.
+  Windows will not let a running executable be overwritten but does allow it to
+  be renamed, so the running image is renamed out of the way, the new one is
+  moved into place, the new one is started, and this process exits.
+
+Both downloads are **GitHub first, cnb.cool as the fallback**: if GitHub cannot be
+reached at any step the mirror is tried automatically, with nothing for the
+operator to switch by hand.
+
+## The cnb.cool mirror
+
+https://cnb.cool/laincat/wbtray is a mirror of GitHub, and builds nothing:
+
+- It pulls every branch and tag from GitHub hourly, with a button on the
+  repository page (and an API trigger) to do it now.
+- When a version tag arrives, that tag's GitHub release assets are re-uploaded
+  as they are — **not rebuilt** — so the files on the two sites are byte-for-byte
+  identical.
+- The same release also carries **the Windows build of workbuddy2api-panel**, so
+  one mirror covers both programs. The upstream project has no cnb.cool
+  repository of its own, and without this a reader who cannot reach GitHub would
+  have no way to obtain the gateway at all.
 
 ## What it does with the gateway process
 

@@ -6,6 +6,7 @@ import (
 	"context"
 	"image/png"
 	"os"
+	"strings"
 	"testing"
 
 	"wbtray/internal/app"
@@ -13,6 +14,7 @@ import (
 	"wbtray/internal/raster"
 	"wbtray/internal/status"
 	"wbtray/internal/theme"
+	"wbtray/internal/traymenu"
 )
 
 // stubGateway is the process controller the application talks to, with no
@@ -24,6 +26,9 @@ type stubGateway struct {
 }
 
 func (s *stubGateway) PID() status.PIDInfo          { return s.pid }
+func (s *stubGateway) AdoptProcess(pid uint32, exe string) {
+	s.pid = status.PIDInfo{Found: true, PID: pid, Exe: exe}
+}
 func (s *stubGateway) Start() (uint32, error)       { s.pid = status.PIDInfo{Found: true, PID: 4242}; return 4242, nil }
 func (s *stubGateway) Stop() error                  { s.pid = status.PIDInfo{}; return nil }
 func (s *stubGateway) Restart() (uint32, error)     { return s.Start() }
@@ -100,7 +105,13 @@ func TestLiveMenuLaysOutAndPaints(t *testing.T) {
 // to be broken by a change to the model.
 func TestLiveMenuWithNoGateway(t *testing.T) {
 	cfg := config.Default()
+	// In English, so the assertions below can name a row without the test having
+	// to hold a copy of the message table.
+	cfg.Lang = "en"
 	a := app.New(cfg, "", &stubGateway{}, app.Options{})
+	// The fresh-install state in full: no gateway running, none installed, and no
+	// accounts anywhere.
+	a.SetGatewayInstalled(false)
 	items := a.Menu()
 	f := &flyout{hover: -1, pressed: -1, subOwner: -1}
 	f.mu.Lock()
@@ -116,6 +127,27 @@ func TestLiveMenuWithNoGateway(t *testing.T) {
 	if c.At(w/2, h/2).A == 0 {
 		t.Fatal("nothing was painted")
 	}
+	// The action a fresh install needs must be offered: there is no gateway to
+	// start, so the useful thing to offer is fetching one.
+	if !menuHasText(items, "Download and install") {
+		t.Error("with no gateway installed, the menu does not offer to install one")
+	}
+	if dir := os.Getenv("WBTRAY_MENU_DIR"); dir != "" {
+		writeSheet(t, dir, "fresh-install-en", c)
+	}
+}
+
+// menuHasText reports whether any row, at any depth, contains a phrase.
+func menuHasText(items []traymenu.Item, phrase string) bool {
+	for _, it := range items {
+		if strings.Contains(it.Text, phrase) {
+			return true
+		}
+		if menuHasText(it.Children, phrase) {
+			return true
+		}
+	}
+	return false
 }
 
 // TestUnreachableGatewaySaysSo checks the wording of the state a fresh install

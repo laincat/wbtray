@@ -63,16 +63,77 @@ jobs:
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           $env:CGO_ENABLED = "0"
           go build -trimpath -ldflags $ldflags -o dist/wbtray.exe ./cmd/wbtray
+          # Written beside the binary so the packaging step does not have to
+          # recompute the version from the environment and risk computing it
+          # differently.
+          Set-Content -Path dist/version.txt -Value $version -NoNewline
           Get-Item dist/wbtray.exe | Select-Object Name, Length
+
+      # The tray updates itself by downloading this archive, so the archive is
+      # the release. A bare .exe beside a manifest of other files would work for
+      # a person downloading it by hand and not for the updater, which has to
+      # unpack into a directory it then swaps in.
+      - name: Package
+        shell: pwsh
+        run: |
+          $version = Get-Content dist/version.txt -Raw
+          $version = $version.Trim()
+          $name = "wbtray-$version-windows-amd64.zip"
+          Compress-Archive -Path dist/wbtray.exe -DestinationPath "dist/$name" -Force
+          "archive=dist/$name" >> $env:GITHUB_ENV
+          "version=$version" >> $env:GITHUB_ENV
+          Get-ChildItem dist | Select-Object Name, Length
+
+      # The upstream gateway travels with this release.
+      #
+      # It is here so that one mirror does for both projects: the upstream one has
+      # no cnb.cool repository of its own, and a reader who cannot reach GitHub
+      # would otherwise have no way to obtain the gateway at all. The file is
+      # fetched rather than rebuilt, so it is byte-for-byte the one upstream
+      # published, and its version is written beside it because the mirrored copy
+      # cannot carry the version in its own name — it is replaced in place on
+      # every release, which is also what keeps wbtray's download URL stable.
+      - name: Mirror the upstream gateway
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          # The public API allows anonymous reads, and a token is sent anyway
+          # because the shared address this runner uses is one of the busiest on
+          # GitHub and the anonymous limit is per address, not per repository.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $api = "https://api.github.com/repos/linguo2625469/workbuddy2api-panel/releases/latest"
+          $headers = @{ "User-Agent" = "wbtray-ci" }
+          if ($env:GITHUB_TOKEN) { $headers["Authorization"] = "Bearer $env:GITHUB_TOKEN" }
+
+          $release = Invoke-RestMethod -Uri $api -Headers $headers
+          $asset = $release.assets | Where-Object { $_.name -like "*-windows-amd64.zip" } | Select-Object -First 1
+          if (-not $asset) {
+            throw "the upstream release $($release.tag_name) has no windows-amd64 archive"
+          }
+
+          Write-Host "mirroring $($release.tag_name): $($asset.name) ($($asset.size) bytes)"
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile "dist/workbuddy2api-panel-windows-amd64.zip" -Headers $headers
+          # No newline handling to get wrong: the reader trims.
+          Set-Content -Path "dist/workbuddy2api-panel-version.txt" -Value $release.tag_name -NoNewline
+
+          Get-ChildItem dist | Select-Object Name, Length
 
       - uses: actions/upload-artifact@v7
         with:
           name: wbtray-windows
-          path: dist/wbtray.exe
+          path: |
+            dist/wbtray.exe
+            dist/wbtray-*-windows-amd64.zip
 
       - name: Publish release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v3
         with:
-          files: dist/wbtray.exe
+          files: |
+            dist/wbtray.exe
+            dist/wbtray-*-windows-amd64.zip
+            dist/workbuddy2api-panel-windows-amd64.zip
+            dist/workbuddy2api-panel-version.txt
           generate_release_notes: true

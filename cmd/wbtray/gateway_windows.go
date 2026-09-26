@@ -119,6 +119,19 @@ func (g *gatewayController) Start() (uint32, error) {
 	return proc.PID, nil
 }
 
+// AdoptProcess tells the controller about a gateway that was started outside it.
+//
+// The startup bootstrap starts the local copy through the install package, which
+// knows nothing about this controller; without being told, the controller would
+// find the process by walking the table and would then believe it belongs to
+// somebody else — and the menu would offer "stop" with the wrong attribution.
+func (g *gatewayController) AdoptProcess(pid uint32, exe string) {
+	g.mu.Lock()
+	g.owned = &gateway.Process{Found: true, Started: true, PID: pid, Exe: exe}
+	g.at = time.Time{}
+	g.mu.Unlock()
+}
+
 // Stop ends the gateway. A process the tray did not start is stopped all the
 // same: an operator who asked for "stop" means it.
 func (g *gatewayController) Stop() error {

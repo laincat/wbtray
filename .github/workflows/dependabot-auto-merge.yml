@@ -1,0 +1,46 @@
+name: dependabot auto-merge
+
+# Merges a Dependabot pull request once CI has passed.
+#
+# The point is that a weekly version bump should not need a human. What makes
+# that safe is not the automation but the check in front of it: this runs on the
+# result of the build workflow, which runs the whole test suite, so a bump that
+# breaks the build is never merged.
+#
+# Only patch and minor updates are merged automatically. A major version of an
+# action can change its inputs, and that is a change worth reading.
+
+on: pull_request
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    # Dependabot's own pull requests only. The actor is what distinguishes them;
+    # a check on the branch name alone could be satisfied by anyone.
+    if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read the update
+        id: meta
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Approve a patch or minor update
+        if: |
+          steps.meta.outputs.update-type == 'version-update:semver-patch' ||
+          steps.meta.outputs.update-type == 'version-update:semver-minor'
+        run: gh pr review --approve "${{ github.event.pull_request.html_url }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Enable auto-merge
+        if: |
+          steps.meta.outputs.update-type == 'version-update:semver-patch' ||
+          steps.meta.outputs.update-type == 'version-update:semver-minor'
+        run: gh pr merge --auto --squash "${{ github.event.pull_request.html_url }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

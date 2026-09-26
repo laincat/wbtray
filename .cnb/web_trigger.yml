@@ -1,0 +1,17 @@
+# The buttons on the repository page.
+#
+# Each button names an event, and that event has to have a pipeline in .cnb.yml
+# or the button does nothing at all. The two files are one commit for that reason:
+# a button whose event has no pipeline is a button that rots silently.
+
+branch:
+  # Every branch, because this button is about the mirror rather than about any
+  # particular line of work. An operator presses it after pushing to GitHub and
+  # before switching to the CNB side, and whichever branch happens to be selected
+  # at that moment is not part of the question.
+  - reg: ".*"
+    buttons:
+      - name: 立即同步
+        description: 从 GitHub 拉取全部分支与标签，以及最新的发行版附件
+        event: web_trigger_sync_now
+        isDefault: true
