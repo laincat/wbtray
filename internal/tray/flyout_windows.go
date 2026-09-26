@@ -262,6 +262,16 @@ func (f *flyout) create(owner uintptr, w, h int) uintptr {
 		wsExToolWindow  = 0x00000080
 		wsExTopmost     = 0x00000008
 	)
+	// Not layered, and the menu is painted opaque from edge to edge.
+	//
+	// The window was briefly layered, to carry the soft drop shadow that was
+	// drawn around the plate. That shadow was the bug: GDI's BitBlt ignores the
+	// alpha channel, so the shadow's near-transparent black arrived on screen as
+	// opaque black and the menu appeared inside a thick dark frame. A layered
+	// window would have carried it correctly, but it also means every pixel has
+	// to be composited by UpdateLayeredWindow rather than painted, and the
+	// simpler answer is better: no shadow, no alpha, and an edge that the frame
+	// already provides. Native menus have no shadow either.
 	// Deliberately activatable, and that is the whole point of not passing
 	// WS_EX_NOACTIVATE.
 	//
@@ -517,8 +527,7 @@ func (f *flyout) paint(hwnd uintptr) {
 		return
 	}
 	defer winapi.ProcDeleteObject.Call(hbm)
-	dst := unsafe.Slice((*byte)(bits), pw*ph*4)
-	copy(dst, c.BGRA())
+	copy(unsafe.Slice((*byte)(bits), pw*ph*4), c.BGRA())
 
 	memDC, _, _ := winapi.ProcCreateCompatibleDC.Call(hdc)
 	if memDC == 0 {

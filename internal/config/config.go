@@ -24,10 +24,23 @@ const (
 	StyleSpark  = "spark"
 	StyleMascot = "mascot"
 	StylePlain  = "plain"
+	// The text styles: a figure drawn inside the icon, which is the one thing a
+	// shape cannot do. A curve shows a trend but not a number, and there are
+	// readings — credits left, accounts ready — where the number is the point.
+	StyleBarText    = "bartext"
+	StyleText       = "text"
+	StyleMascotText = "mascottext"
 )
 
 // Styles is the menu order, which is also the order of the preview sheet.
-var Styles = []string{StyleRing, StyleBar, StyleSpark, StyleMascot, StylePlain}
+//
+// The shape styles come first because a shape is what a sixteen-pixel icon is
+// best at, then the three that carry a figure. The order is also the gallery's,
+// so an operator meets the simplest reading before the densest one.
+var Styles = []string{
+	StyleRing, StyleBar, StyleSpark, StyleMascot, StylePlain,
+	StyleBarText, StyleText, StyleMascotText,
+}
 
 // Metric names what the tray icon draws, and what the menu's live entries show
 // as text.

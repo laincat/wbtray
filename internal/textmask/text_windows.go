@@ -290,15 +290,6 @@ func DrawRight(c *raster.Canvas, x, y float64, spec Font, s string, colour raste
 	Draw(c, x-float64(w), y, spec, s, colour)
 }
 
-// drawTextCenter draws a string centred on x.
-func DrawCenter(c *raster.Canvas, x, y float64, spec Font, s string, colour raster.RGBA) {
-	if s == "" {
-		return
-	}
-	w, _ := Measure(s, spec)
-	Draw(c, x-float64(w)/2, y, spec, s, colour)
-}
-
 // truncate shortens a string until it fits in maxWidth, with an ellipsis, which
 // is what keeps a long nickname or a log line from running off a panel edge.
 func Truncate(s string, spec Font, maxWidth int) string {

@@ -80,6 +80,9 @@ var zh = Strings{
 	"style.spark":  "曲线",
 	"style.mascot": "猫猫",
 	"style.plain":  "极简",
+	"style.bartext":    "柱状 + 文本",
+	"style.text":       "纯文本",
+	"style.mascottext": "猫猫 + 文本",
 
 	"gw.start":         "启动网关",
 	"gw.stop":          "停止网关",
@@ -218,6 +221,9 @@ var en = Strings{
 	"style.spark":  "Sparkline",
 	"style.mascot": "Mascot",
 	"style.plain":  "Plain",
+	"style.bartext":    "Bars + text",
+	"style.text":       "Text only",
+	"style.mascottext": "Mascot + text",
 
 	"gw.start":        "Start gateway",
 	"gw.stop":         "Stop gateway",

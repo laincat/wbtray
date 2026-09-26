@@ -17,20 +17,19 @@ import (
 // arguments always produce the same pixels, which is what makes the layout
 // testable without a window.
 func paintMenu(c *raster.Canvas, rows []row, scale float64, th theme.Theme, hover int, scroll float64) {
-	// A soft drop shadow, built from concentric rounded rectangles of low alpha
-	// rather than a blur: at this size the result is indistinguishable, and it
-	// keeps the renderer free of a filter pass.
-	for i := 6; i >= 1; i-- {
-		t := float64(i)
-		alpha := 0.045 * (1 - t/7)
-		c.RoundedRect(
-			foShadowPad*scale-t,
-			foShadowPad*scale-t+2*scale,
-			float64(c.W)-(foShadowPad*2)*scale+t*2,
-			float64(c.H)-(foShadowPad*2)*scale+t*2+2*scale,
-			(foRadius+t)*scale,
-			raster.RGBA{R: 0, G: 0, B: 0, A: uint8(255 * alpha)})
-	}
+	// The window is filled to its edges with the menu's background, and there is
+	// deliberately no drop shadow.
+	//
+	// A shadow was drawn here in the first version and it is what produced the
+	// thick dark frame: the bitmap is blitted with BitBlt, which ignores the
+	// alpha channel, so a shadow pixel of near-transparent black arrived on
+	// screen as opaque black. Either the window becomes layered — every pixel
+	// composited rather than painted — or the shadow goes, and the shadow is not
+	// worth that machinery. Native menus have no shadow either.
+	//
+	// Filling the whole window also means the border below is a real edge rather
+	// than an inset one, and no pixel of the window is left undefined.
+	c.Fill(th.MenuBg)
 
 	plateX := foShadowPad * scale
 	plateY := foShadowPad * scale

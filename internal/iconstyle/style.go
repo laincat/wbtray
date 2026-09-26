@@ -8,7 +8,6 @@
 package iconstyle
 
 import (
-	"fmt"
 	"math"
 
 	"wbtray/internal/cat"
@@ -89,6 +88,12 @@ func Draw(v View) *raster.Canvas {
 		DrawSpark(c, v, accent)
 	case "mascot":
 		DrawMascot(c, v, accent)
+	case "bartext":
+		DrawBarText(c, v, accent)
+	case "text":
+		DrawText(c, v, accent)
+	case "mascottext":
+		DrawMascotText(c, v, accent)
 	default:
 		DrawPlain(c, v, accent)
 	}
@@ -283,6 +288,13 @@ func drawTick(c *raster.Canvas, cx, cy, r, width, frac float64, colour raster.RG
 // drawBars is the same metric as a four-bar mini bar chart: the newest quarters
 // of the window, so it reads as a trend rather than a level.
 func DrawBars(c *raster.Canvas, v View, accent raster.RGBA) {
+	drawBarsIn(c, v, accent, 1)
+	badge(c, v, accent)
+}
+
+// drawBarsIn draws the bar chart at a given strength, for styles that use it as
+// a background rather than as the whole icon.
+func drawBarsIn(c *raster.Canvas, v View, accent raster.RGBA, strength float64) {
 	x, y, w := glyphBox(c)
 	h := w
 	bars := 4
@@ -321,9 +333,8 @@ func DrawBars(c *raster.Canvas, v View, accent raster.RGBA) {
 		if i != len(values)-1 {
 			colour = accent.Mul(0.55)
 		}
-		c.RoundedRect(bx, y+h-bh, bw, bh, bw*0.35, colour)
+		c.RoundedRect(bx, y+h-bh, bw, bh, bw*0.35, colour.Mul(strength))
 	}
-	badge(c, v, accent)
 }
 
 // drawSpark is the trend line: the recent history as a polyline, with the last
@@ -391,46 +402,6 @@ func DrawPlain(c *raster.Canvas, v View, accent raster.RGBA) {
 		c.Arc(cx, cy, w*0.36, w*0.13, -90, -90+360*frac, v.Theme.Accent)
 	}
 	c.Circle(cx, cy, w*0.13, v.Theme.Ink)
-}
-
-// shortLabel is the ring's centre readout: the metric in the fewest characters
-// that still mean something.
-func ShortLabel(v View) string {
-	switch v.Metric {
-	case "accounts":
-		return fmt.Sprintf("%d", v.Snap.Ready())
-	case "credits":
-		n := v.Snap.CreditTotal()
-		switch {
-		case n >= 10000:
-			return fmt.Sprintf("%dk", n/1000)
-		case n >= 1000:
-			return fmt.Sprintf("%.1fk", float64(n)/1000)
-		default:
-			return fmt.Sprintf("%d", n)
-		}
-	case "requests", "tokens":
-		n := v.Snap.MetricValue(v.Metric)
-		switch {
-		case n >= 1e6:
-			return fmt.Sprintf("%.0fM", n/1e6)
-		case n >= 1000:
-			return fmt.Sprintf("%.0fk", n/1000)
-		default:
-			return fmt.Sprintf("%.0f", n)
-		}
-	case "latency":
-		n := v.Snap.MetricValue(v.Metric)
-		if n >= 1000 {
-			return fmt.Sprintf("%.1fs", n/1000)
-		}
-		return fmt.Sprintf("%.0f", n)
-	case "tps":
-		return fmt.Sprintf("%.0f", v.Snap.MetricValue(v.Metric))
-	case "queue":
-		return fmt.Sprintf("%d", v.Snap.InFlight())
-	}
-	return ""
 }
 
 // drawMascot is the identity style: the same cat the console uses, wearing the

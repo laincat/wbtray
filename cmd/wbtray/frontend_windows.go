@@ -353,13 +353,6 @@ func styleNameForID(id uint32) string {
 	return config.Styles[i]
 }
 
-func boolToInt(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
-}
-
 // showAbout raises the shell's own message box: an about panel is not worth a
 // window of its own, and the shell's version is the one the system's
 // accessibility settings already cover.

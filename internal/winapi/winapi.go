@@ -21,20 +21,16 @@ var (
 	gdi32    = syscall.NewLazyDLL("gdi32.dll")
 
 	ProcGetModuleHandleW = kernel32.NewProc("GetModuleHandleW")
-	ProcCreateMutexW     = kernel32.NewProc("CreateMutexW")
 
 	ProcRegisterClassExW    = user32.NewProc("RegisterClassExW")
 	ProcCreateWindowExW     = user32.NewProc("CreateWindowExW")
 	ProcDefWindowProcW      = user32.NewProc("DefWindowProcW")
-	ProcDefWindowProcA      = user32.NewProc("DefWindowProcA")
 	ProcDestroyWindow       = user32.NewProc("DestroyWindow")
 	ProcPostQuitMessage     = user32.NewProc("PostQuitMessage")
 	ProcGetMessageW         = user32.NewProc("GetMessageW")
 	ProcTranslateMessage    = user32.NewProc("TranslateMessage")
 	ProcDispatchMessageW    = user32.NewProc("DispatchMessageW")
-	ProcIsDialogMessageW    = user32.NewProc("IsDialogMessageW")
 	ProcPostMessageW        = user32.NewProc("PostMessageW")
-	ProcSendMessageW        = user32.NewProc("SendMessageW")
 	ProcSetTimer            = user32.NewProc("SetTimer")
 	ProcKillTimer           = user32.NewProc("KillTimer")
 	ProcCreatePopupMenu     = user32.NewProc("CreatePopupMenu")
@@ -47,12 +43,8 @@ var (
 	ProcDestroyIcon         = user32.NewProc("DestroyIcon")
 	ProcCreateIconIndirect  = user32.NewProc("CreateIconIndirect")
 	ProcShowWindow          = user32.NewProc("ShowWindow")
-	ProcIsWindowVisible     = user32.NewProc("IsWindowVisible")
 	ProcSetWindowPos        = user32.NewProc("SetWindowPos")
 	ProcGetWindowRect       = user32.NewProc("GetWindowRect")
-	ProcGetWindowLongW      = user32.NewProc("GetWindowLongW")
-	ProcSetWindowLongW      = user32.NewProc("SetWindowLongW")
-	ProcGetClientRect       = user32.NewProc("GetClientRect")
 	ProcBeginPaint          = user32.NewProc("BeginPaint")
 	ProcEndPaint            = user32.NewProc("EndPaint")
 	ProcInvalidateRect      = user32.NewProc("InvalidateRect")
@@ -60,24 +52,18 @@ var (
 	ProcFillRect            = user32.NewProc("FillRect")
 	ProcReleaseCapture      = user32.NewProc("ReleaseCapture")
 	ProcGetSystemMetrics    = user32.NewProc("GetSystemMetrics")
-	ProcSystemParametersInfoW = user32.NewProc("SystemParametersInfoW")
 	ProcSetCapture          = user32.NewProc("SetCapture")
 	ProcMessageBoxW         = user32.NewProc("MessageBoxW")
-	ProcSetCursor           = user32.NewProc("SetCursor")
 	ProcLoadCursorW         = user32.NewProc("LoadCursorW")
 	ProcGetMonitorInfoW     = user32.NewProc("GetMonitorInfoW")
 	ProcMonitorFromPoint    = user32.NewProc("MonitorFromPoint")
 	ProcTrackMouseEvent     = user32.NewProc("TrackMouseEvent")
 	ProcGetDoubleClickTime  = user32.NewProc("GetDoubleClickTime")
 	ProcGetForegroundWindow = user32.NewProc("GetForegroundWindow")
-	ProcGetDesktopWindow    = user32.NewProc("GetDesktopWindow")
-	ProcAdjustWindowRect    = user32.NewProc("AdjustWindowRect")
-	ProcSetFocus            = user32.NewProc("SetFocus")
 	ProcGetTickCount        = kernel32.NewProc("GetTickCount")
 	ProcGetAsyncKeyState    = user32.NewProc("GetAsyncKeyState")
 
 	ProcShellNotifyIconW = shell32.NewProc("Shell_NotifyIconW")
-	ProcShellExecuteW    = shell32.NewProc("ShellExecuteW")
 
 	User32DLL = user32
 	GDI32DLL  = gdi32
@@ -93,8 +79,6 @@ var (
 	ProcCreateFontIndirectW = gdi32.NewProc("CreateFontIndirectW")
 	ProcSetTextColor       = gdi32.NewProc("SetTextColor")
 	ProcSetBkMode          = gdi32.NewProc("SetBkMode")
-	ProcGetStockObject     = gdi32.NewProc("GetStockObject")
-	ProcCreatePen          = gdi32.NewProc("CreatePen")
 	ProcCreateSolidBrush   = gdi32.NewProc("CreateSolidBrush")
 	ProcGetDeviceCaps      = gdi32.NewProc("GetDeviceCaps")
 
@@ -102,17 +86,11 @@ var (
 	// flyout's text: DirectWrite through COM would be a large amount of code for
 	// one label per row, and the bitmap font is only legible at icon sizes.
 	ProcTextOutW   = gdi32.NewProc("TextOutW")
-	ProcRoundRect  = gdi32.NewProc("RoundRect")
-	ProcEllipse    = gdi32.NewProc("Ellipse")
-	ProcMoveToEx   = gdi32.NewProc("MoveToEx")
-	ProcLineTo     = gdi32.NewProc("LineTo")
-	ProcCreateHatchBrush = gdi32.NewProc("CreateHatchBrush")
 	ProcBitBlt           = gdi32.NewProc("BitBlt")
-	ProcPatBlt           = gdi32.NewProc("PatBlt")
 	ProcGetDC            = user32.NewProc("GetDC")
 	ProcReleaseDC        = user32.NewProc("ReleaseDC")
-	ProcOffsetRect       = user32.NewProc("OffsetRect")
 )
+
 
 // DwmAPI is loaded lazily like the rest: it is only for the flyout window's
 // rounded corners, and a system without it simply gets square ones.

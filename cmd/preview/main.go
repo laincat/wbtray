@@ -8,6 +8,11 @@
 // Usage:
 //
 //	go run ./cmd/preview [-out design-preview.png]
+
+// A second mode, -text, renders the text styles at every size the taskbar uses,
+// which is the only way to judge whether a figure is legible: the whole point of
+// those styles is the reading, and a reading that cannot be read is worse than
+// the shape it replaced.
 package main
 
 import (

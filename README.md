@@ -41,6 +41,19 @@ colour around it:
 | **Sparkline** | the last twelve buckets as a smoothed curve, newest point marked |
 | **Mascot** | the same cat the console uses, wearing the health colour |
 | **Plain** | a quiet glyph, for when the tray should be present but not loud |
+| **Bars + text** | the bar chart dimmed as a background, with a figure over it |
+| **Text only** | the figure alone, at the largest size the icon allows |
+| **Mascot + text** | the cat on the left, the figure on the right |
+
+A shape and a number are different things: a curve shows a trend but cannot state
+a value, and there are readings — credits left, accounts serving — where the value
+is the point. Those three styles draw the figure into the icon with a 3×5 dot
+matrix face, which at sixteen pixels is about as small as a digit can be drawn and
+still read. A figure too long for the space is **shortened rather than
+truncated** — `48250` becomes `48k`, `1602000` becomes `1.6M` — so what is left on
+screen is still the right number. They also drop the status pip and colour the
+figure by health instead, because four characters fill the icon and a pip would
+land on top of them.
 
 Two palettes: **Neon**, which is cyan on a dark halo, and **Monochrome**, which
 keeps colour for the two states that need it and is otherwise neutral. Both can
@@ -80,6 +93,10 @@ unwanted; both are built from the same model.
 
 ![The menu in the light appearance](design/menu-en-light.png)
 
+The style gallery, where hovering a row paints that style onto the real tray icon:
+
+![The style gallery](design/menu-gallery.png)
+
 ## The chart window
 
 A sixteen-pixel icon can show a shape but not a reading. Double-clicking the icon
@@ -90,6 +107,10 @@ to change the metric, click the chart to switch between line, area and bars, or
 use the arrow keys.
 
 ![The chart window](design/chart-default.png)
+
+The same window at the smallest size it allows:
+
+![The chart window at its minimum size](design/chart-minimum.png)
 
 ![The menu, with accounts and a gateway running](design/menu-en.png)
 

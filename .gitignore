@@ -10,3 +10,8 @@ wbtray.conf
 /menu-sheets/
 /chart-sheets/
 /icon-sheets/
+
+# The legibility sheet is a diagnostic written by a test, not a committed
+# illustration: it is the one to look at while tuning the figures, and it goes
+# stale the moment a size changes.
+/design/figure-legibility.png
