@@ -1,0 +1,8 @@
+# Text files are stored with LF and checked out with the platform's ending, so a
+# commit made on Windows and one made on the build runner produce the same blob.
+* text=auto eol=lf
+
+# The generated icon resource is binary and must never be line-ending converted:
+# a PE object with LF rewritten to CRLF is a corrupt PE object.
+*.syso binary
+*.png binary

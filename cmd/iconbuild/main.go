@@ -1,0 +1,150 @@
+// Command iconbuild attaches a Windows icon to the executable.
+//
+// The tray draws its own icon at run time, but the file in Explorer, the entry
+// in Task Manager and the alt-tab thumbnail are all PE resources, and Go can
+// only carry one through a .syso beside the package's sources. This produces
+// that file from the same renderer the tray uses, so the two cannot drift.
+//
+// It is a separate command rather than part of the build because the .syso is
+// generated once and committed: a release build should not need a renderer, and
+// a generated binary artefact in a build step is one more thing that can differ
+// between two machines.
+//
+// Usage:
+//
+//	go run ./cmd/iconbuild [-arch amd64|arm64|386]
+package main
+
+import (
+	"bytes"
+	"flag"
+	"fmt"
+	"image/png"
+	"os"
+	"path/filepath"
+
+	"wbtray/internal/iconstyle"
+	"wbtray/internal/raster"
+	"wbtray/internal/status"
+	"wbtray/internal/theme"
+	"wbtray/internal/winres"
+)
+
+// sizes are the images packed into the icon, which is what Windows picks from by
+// the size it needs.
+var sizes = []int{16, 20, 24, 32, 48, 64, 128, 256}
+
+func main() {
+	arch := flag.String("arch", "amd64", "Windows architecture for the .syso (amd64, arm64, 386)")
+	flag.Parse()
+
+	if err := run(*arch); err != nil {
+		fmt.Fprintf(os.Stderr, "iconbuild: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func run(arch string) error {
+	machine, ok := map[string]uint16{
+		"amd64": winres.MachineAMD64,
+		"arm64": winres.MachineARM64,
+		"386":   winres.MachineI386,
+	}[arch]
+	if !ok {
+		return fmt.Errorf("unknown arch %q: want amd64, arm64 or 386", arch)
+	}
+	root, err := repoRoot()
+	if err != nil {
+		return err
+	}
+
+	// The file icon is drawn in the default palette and style, on the plate the
+	// tray would use: it is the product's mark rather than a status reading, and
+	// a status reading baked into a file icon would be a lie by the next day.
+	images := make([]winres.IconData, 0, len(sizes))
+	for _, size := range sizes {
+		c := iconstyle.Draw(iconstyle.View{
+			Size:   size,
+			Style:  "mascot",
+			Metric: "accounts",
+			Lang:   "en",
+			Theme:  theme.Neon(),
+			Snap:   sampleState(),
+		})
+		pngBytes, err := encodePNG(c)
+		if err != nil {
+			return fmt.Errorf("encode %dx%d: %w", size, size, err)
+		}
+		images = append(images, winres.IconData{
+			// The directory stores the dimension in one byte, and 256 has no
+			// representation other than zero.
+			Width:  byteOf(size),
+			Height: byteOf(size),
+			Bytes:  pngBytes,
+		})
+	}
+
+	rsrc, err := winres.BuildIconResources(images, 1)
+	if err != nil {
+		return err
+	}
+	obj, err := winres.WriteObject(machine, rsrc)
+	if err != nil {
+		return err
+	}
+
+	syso := filepath.Join(root, "cmd", "wbtray", "rsrc_windows_"+arch+".syso")
+	if err := os.WriteFile(syso, obj, 0o644); err != nil {
+		return err
+	}
+	fmt.Printf("wrote %s (%d images: %v)\n", syso, len(sizes), sizes)
+	return nil
+}
+
+// byteOf encodes a dimension the way an icon directory does.
+func byteOf(size int) byte {
+	if size >= 256 {
+		return 0
+	}
+	return byte(size)
+}
+
+func encodePNG(c *raster.Canvas) ([]byte, error) {
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, c.Image()); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// sampleState is a healthy pool, so the mark is drawn with a full gauge rather
+// than an empty one.
+func sampleState() status.Snapshot {
+	return status.Snapshot{
+		Reachable: true, Total: 3, Healthy: 3,
+		Accounts: []status.Account{
+			{UID: "a", Credits: 9000, Total: 12000},
+			{UID: "b", Credits: 9000, Total: 12000},
+			{UID: "c", Credits: 9000, Total: 12000},
+		},
+	}
+}
+
+// repoRoot walks up from the working directory to the module root, so the
+// command works from anywhere in the tree.
+func repoRoot() (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", fmt.Errorf("no go.mod found above %s", dir)
+		}
+		dir = parent
+	}
+}

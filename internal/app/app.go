@@ -1,0 +1,567 @@
+// Package app wires the tray together: the icon, the panel client, the gateway
+// process and the windows that show what is going on.
+//
+// The interesting parts — the menu model, the refresh policy, the wording — live
+// here rather than in the platform front end, which is what makes them testable
+// without a desktop.
+package app
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"time"
+
+	"wbtray/internal/config"
+	"wbtray/internal/i18n"
+	"wbtray/internal/panel"
+	"wbtray/internal/status"
+	"wbtray/internal/theme"
+)
+
+// Options is what the front end hands the application at startup.
+type Options struct {
+	// ConfigPath is where the tray's own settings are written back.
+	ConfigPath string
+	// Notify raises a balloon; the front end provides it because it needs a
+	// window handle.
+	Notify func(title, text string, level int)
+	// OpenURL opens a link in the default browser.
+	OpenURL func(url string) error
+	// OpenPath opens a file or folder with the shell.
+	OpenPath func(path string) error
+	// RefreshIcon asks the front end to repaint the tray icon.
+	RefreshIcon func()
+	// SetMenuStyle switches between the drawn and the system menu.
+	SetMenuStyle func(native bool)
+	// SystemDark reports whether Windows is using its dark app theme, so the
+	// "follow the system" appearance can be resolved.
+	SystemDark func() bool
+	// Quit ends the application.
+	Quit func()
+}
+
+// Gateway is the process control the application needs from the front end.
+type Gateway interface {
+	// PID reports where the gateway is and whether it is running.
+	PID() status.PIDInfo
+	// Start launches it.
+	Start() (uint32, error)
+	// Stop ends it.
+	Stop() error
+	// SetConsole shows or hides its window.
+	SetConsole(show bool) error
+	// HasConsole reports whether the gateway currently owns a console window,
+	// which is what the menu's show/hide row acts on.
+	HasConsole() bool
+	// Restart stops and starts it.
+	Restart() (uint32, error)
+	// AutoStartEnabled reports whether the gateway starts with Windows.
+	AutoStartEnabled() bool
+	// SetAutoStart writes the gateway's own autostart entry.
+	SetAutoStart(on bool) error
+}
+
+// App is the running tray application.
+type App struct {
+	mu     sync.Mutex
+	cfg    config.Config
+	opts   Options
+	client *panel.Client
+
+	snap   status.Snapshot
+	snapAt time.Time
+	paused bool
+	// hoveredPreview holds the style a hovered menu row is previewing, which is
+	// the tray's version of a preview thumbnail.
+	hoveredPreview string
+
+	// failures counts consecutive failed refreshes, which is what decides when a
+	// gateway that has gone away is worth a notification.
+	failures       int
+	announcedDown  bool
+	announcedEmpty bool
+	// trayAutoStart mirrors the registry entry, read once at startup and written
+	// whenever the menu changes it.
+	trayAutoStart bool
+	// setTrayAutoStart writes the registry entry.
+	setTrayAutoStart func(on bool) error
+
+	gateway Gateway
+	// frontEnd is the running tray, which owns the window and the clock.
+	frontEnd FrontEnd
+}
+
+// FrontEnd is what the application asks of the running tray: a tooltip, and a
+// way to be told when the numbers change.
+type FrontEnd interface {
+	SetTooltip(text string)
+	RefreshWindows()
+}
+
+// New builds the application.
+func New(cfg config.Config, cfgPath string, gw Gateway, opts Options) *App {
+	opts.ConfigPath = cfgPath
+	a := &App{cfg: cfg, opts: opts, gateway: gw}
+	a.client = panel.New(cfg.BaseURL, cfg.APIKey, time.Duration(cfg.TimeoutSec)*time.Second)
+	return a
+}
+
+// SetCallbacks installs the front end's callbacks. They arrive after
+// construction because the tray icon needs the application and the application
+// needs the icon: one of the two has to be wired second.
+func (a *App) SetCallbacks(opts Options) {
+	opts.ConfigPath = a.opts.ConfigPath
+	a.mu.Lock()
+	a.opts = opts
+	a.mu.Unlock()
+}
+
+// SetFrontEnd attaches the running tray.
+func (a *App) SetFrontEnd(f FrontEnd) {
+	a.mu.Lock()
+	a.frontEnd = f
+	a.mu.Unlock()
+}
+
+// FrontEnd returns the attached tray, or nil before it is running.
+func (a *App) FrontEnd() FrontEnd {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.frontEnd
+}
+
+// ConfigPath is where the tray's settings live, for the menu row that opens it.
+func (a *App) ConfigPath() string { return a.opts.ConfigPath }
+
+// Gateway is the process controller.
+func (a *App) Gateway() Gateway { return a.gateway }
+
+// Notify raises a balloon through the front end.
+func (a *App) Notify(title, text string, level int) { a.notify("", title, text, level) }
+
+// Quit asks the front end to exit.
+func (a *App) Quit() {
+	if a.opts.Quit != nil {
+		a.opts.Quit()
+	}
+}
+
+// HealthLabel is the one-word state, for the about box.
+func (a *App) HealthLabel() string {
+	a.mu.Lock()
+	snap, paused, lang := a.snap, a.paused, a.cfg.Lang
+	a.mu.Unlock()
+	return healthLabel(lang, healthOf(snap, paused))
+}
+
+// SetTrayAutoStart wires the tray's own autostart control, which lives in the
+// platform front end because it is a registry entry and a per-user path.
+func (a *App) SetTrayAutoStart(enabled bool, set func(bool) error) {
+	a.mu.Lock()
+	a.trayAutoStart = enabled
+	a.setTrayAutoStart = set
+	a.mu.Unlock()
+}
+
+// TrayAutoStart reports whether the tray starts with the user's session.
+func (a *App) TrayAutoStart() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.trayAutoStart
+}
+
+// ToggleTrayAutoStart flips the tray's autostart entry.
+func (a *App) ToggleTrayAutoStart() error {
+	a.mu.Lock()
+	next := !a.trayAutoStart
+	apply := a.setTrayAutoStart
+	a.trayAutoStart = next
+	a.mu.Unlock()
+	if apply == nil {
+		return nil
+	}
+	if err := apply(next); err != nil {
+		// A registry write that failed must not leave the menu claiming it
+		// succeeded.
+		a.mu.Lock()
+		a.trayAutoStart = !next
+		a.mu.Unlock()
+		return err
+	}
+	return nil
+}
+
+// Config returns the configuration in force.
+func (a *App) Config() config.Config {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.cfg
+}
+
+// Snapshot returns the most recent reading.
+func (a *App) Snapshot() status.Snapshot {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.snap
+}
+
+// PanelClient is the client in use, so the front end can open the panel with the
+// key already in the URL.
+func (a *App) PanelClient() *panel.Client { return a.client }
+
+// PanelURL is the console page with the key filled in, so the menu's "open
+// panel" row does not send the operator to a login prompt.
+func (a *App) PanelURL() string { return a.client.PanelURL() }
+
+// BaseURL is the gateway root the tray is watching.
+func (a *App) BaseURL() string { return a.client.Base() }
+
+// Paused reports whether refreshing is suspended.
+func (a *App) Paused() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.paused
+}
+
+// SetPaused suspends or resumes refreshing.
+func (a *App) SetPaused(paused bool) {
+	a.mu.Lock()
+	a.paused = paused
+	a.mu.Unlock()
+	if !paused {
+		a.Refresh()
+	}
+	a.refreshIcon()
+}
+
+// Lang is the language in force.
+func (a *App) Lang() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.cfg.Lang
+}
+
+// Style is the icon style in force, possibly a hovered preview of one.
+func (a *App) Style() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.hoveredPreview != "" {
+		return a.hoveredPreview
+	}
+	return a.cfg.Style
+}
+
+// Metric is the metric in force.
+func (a *App) Metric() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.cfg.Metric
+}
+
+// PreviewStyle makes the icon show a style without saving it, which is what a
+// hovered row in the style gallery does. An empty name ends the preview.
+func (a *App) PreviewStyle(style string) {
+	a.mu.Lock()
+	changed := a.hoveredPreview != style
+	a.hoveredPreview = style
+	a.mu.Unlock()
+	if changed {
+		a.refreshIcon()
+	}
+}
+
+// SetStyle saves a style as the operator's choice.
+func (a *App) SetStyle(style string) {
+	a.mu.Lock()
+	a.cfg.Style = style
+	a.hoveredPreview = ""
+	a.mu.Unlock()
+	a.save()
+	a.refreshIcon()
+}
+
+// SetMetric saves the metric the icon draws.
+func (a *App) SetMetric(metric string) {
+	a.mu.Lock()
+	a.cfg.Metric = metric
+	a.mu.Unlock()
+	a.save()
+	a.refreshIcon()
+}
+
+// SetTheme saves the palette.
+func (a *App) SetTheme(name string) {
+	a.mu.Lock()
+	a.cfg.Theme = name
+	a.mu.Unlock()
+	a.save()
+	a.refreshIcon()
+}
+
+// SetLang saves the language.
+func (a *App) SetLang(lang string) {
+	a.mu.Lock()
+	a.cfg.Lang = config.NormalizeLang(lang)
+	a.mu.Unlock()
+	a.save()
+	a.refreshIcon()
+}
+
+// SetAppearance saves when the palette is used.
+func (a *App) SetAppearance(mode string) {
+	a.mu.Lock()
+	a.cfg.Appearance = config.NormalizeAppearance(mode)
+	a.mu.Unlock()
+	a.save()
+	a.refreshIcon()
+}
+
+// Appearance returns the appearance in force.
+func (a *App) Appearance() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.cfg.Appearance
+}
+
+// Theme resolves the palette to draw with right now, which is where "follow
+// Windows" turns into a concrete set of colours.
+func (a *App) Theme() theme.Theme {
+	a.mu.Lock()
+	name, appearance := a.cfg.Theme, a.cfg.Appearance
+	fn := a.opts.SystemDark
+	a.mu.Unlock()
+	systemDark := false
+	if fn != nil {
+		systemDark = fn()
+	}
+	return theme.Resolve(name, theme.ParseAppearance(appearance), systemDark)
+}
+
+// SetMenuStyle remembers which menu style the operator prefers.
+func (a *App) SetMenuStyle(native bool) {
+	a.mu.Lock()
+	if native {
+		a.cfg.MenuStyle = "native"
+	} else {
+		a.cfg.MenuStyle = "flyout"
+	}
+	a.mu.Unlock()
+	a.save()
+	if a.opts.SetMenuStyle != nil {
+		a.opts.SetMenuStyle(native)
+	}
+}
+
+// SetShowConsole remembers whether the gateway should be started with a visible
+// window.
+func (a *App) SetShowConsole(show bool) {
+	a.mu.Lock()
+	a.cfg.ShowConsole = show
+	a.mu.Unlock()
+	a.save()
+}
+
+// ShowConsole reports the saved preference.
+func (a *App) ShowConsole() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.cfg.ShowConsole
+}
+
+// save writes the configuration back, reporting a failure through a balloon
+// rather than silently: a setting that does not survive a restart is worse than
+// one that was refused.
+func (a *App) save() {
+	if a.opts.ConfigPath == "" {
+		return
+	}
+	cfg := a.Config()
+	if err := config.Save(a.opts.ConfigPath, cfg); err != nil {
+		a.notify(config.NormalizeLang(cfg.Lang), "wbtray", err.Error(), 2)
+	}
+}
+
+// T is the translation helper bound to the current language.
+func (a *App) T(key string, args ...any) string {
+	return i18n.T(a.Lang(), key, args...)
+}
+
+// Refresh reads the panel once and updates everything that shows it.
+func (a *App) Refresh() {
+	if a.Paused() {
+		return
+	}
+	client := a.PanelClient()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	snap := client.Fetch(ctx)
+	cancel()
+
+	snap.Process = a.gateway.PID()
+	if a.Paused() {
+		// A pause that arrived while the request was in flight must not be undone
+		// by its result.
+		return
+	}
+
+	a.mu.Lock()
+	a.snap = snap
+	a.snapAt = snap.At
+	a.mu.Unlock()
+
+	a.react(snap)
+	a.refreshIcon()
+	if fe := a.FrontEnd(); fe != nil {
+		fe.SetTooltip(a.Tooltip())
+	}
+}
+
+// react turns a changed state into a notification, once per transition rather
+// than once per refresh: a gateway that has been down for an hour is not news.
+func (a *App) react(snap status.Snapshot) {
+	lang := a.Lang()
+
+	if !snap.Reachable {
+		a.mu.Lock()
+		a.failures++
+		notify := a.failures >= 3 && !a.announcedDown
+		if notify {
+			a.announcedDown = true
+		}
+		a.mu.Unlock()
+		if notify {
+			a.notify(lang, i18n.T(lang, "notify.offline_title"),
+				i18n.T(lang, "notify.offline", a.PanelClient().Base()), 1)
+		}
+		return
+	}
+
+	a.mu.Lock()
+	recovered := a.announcedDown
+	a.announcedDown = false
+	a.failures = 0
+	a.mu.Unlock()
+	if recovered {
+		a.notify(lang, i18n.T(lang, "notify.ready_title"),
+			i18n.T(lang, "notify.ready", snap.Ready()), 0)
+	}
+
+	// A pool with accounts but no credits left is the failure that costs the
+	// operator a bad afternoon, so it is worth a word.
+	if snap.Total > 0 && snap.CreditTotal() <= 0 {
+		a.mu.Lock()
+		warn := !a.announcedEmpty
+		a.announcedEmpty = true
+		a.mu.Unlock()
+		if warn {
+			a.notify(lang, i18n.T(lang, "notify.credit_empty_title"),
+				i18n.T(lang, "notify.credit_empty"), 1)
+		}
+		return
+	}
+	if snap.CreditTotal() > 0 {
+		a.mu.Lock()
+		a.announcedEmpty = false
+		a.mu.Unlock()
+	}
+}
+
+func (a *App) notify(lang, title, text string, level int) {
+	if a.opts.Notify != nil {
+		a.opts.Notify(title, text, level)
+	}
+}
+
+func (a *App) refreshIcon() {
+	if a.opts.RefreshIcon != nil {
+		a.opts.RefreshIcon()
+	}
+}
+
+// Interval is how often the panel is polled.
+func (a *App) Interval() time.Duration {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return time.Duration(a.cfg.IntervalSec) * time.Second
+}
+
+// Reload re-reads the configuration file, which is what the menu's reload row
+// does after the operator edits it by hand.
+func (a *App) Reload() error {
+	cfg, err := config.Load(a.opts.ConfigPath)
+	if err != nil {
+		return err
+	}
+	a.mu.Lock()
+	a.cfg = cfg
+	a.mu.Unlock()
+	a.client = panel.New(cfg.BaseURL, cfg.APIKey, time.Duration(cfg.TimeoutSec)*time.Second)
+	if a.opts.SetMenuStyle != nil {
+		a.opts.SetMenuStyle(cfg.MenuStyle == "native")
+	}
+	a.Refresh()
+	return nil
+}
+
+// Tooltip is the hover text.
+func (a *App) Tooltip() string {
+	a.mu.Lock()
+	snap, paused, cfg := a.snap, a.paused, a.cfg
+	a.mu.Unlock()
+
+	lang := cfg.Lang
+	state := snap.Health().Label(lang)
+	if paused {
+		state = i18n.T(lang, "health.paused")
+	} else if snap.Reachable && snap.Total > 0 && snap.Ready() == 0 {
+		state = i18n.T(lang, "health.warn")
+	}
+
+	lines := []string{fmt.Sprintf("%s — %s", i18n.T(lang, "app.name"), state)}
+	switch {
+	case !snap.Reachable:
+		if paused {
+			lines = append(lines, cfg.BaseURL)
+		} else {
+			lines = append(lines, i18n.T(lang, "status.unreachable", cfg.BaseURL))
+		}
+	case snap.Total == 0:
+		lines = append(lines, i18n.T(lang, "status.no_accounts"))
+	default:
+		lines = append(lines,
+			i18n.T(lang, "status.accounts", snap.Ready(), snap.Total),
+			i18n.T(lang, "status.credits", i18n.Num(snap.CreditTotal())),
+			fmt.Sprintf("%s · %s",
+				i18n.T(lang, "status.requests",
+					i18n.Compact(float64(snap.Usage.Requests)),
+					i18n.Compact(float64(snap.Usage.Errors))),
+				i18n.T(lang, "status.inflight", snap.InFlight())),
+		)
+		if snap.Version != "" {
+			lines = append(lines, i18n.T(lang, "status.version", snap.Version))
+		}
+		if snap.Process.Found {
+			lines = append(lines, fmt.Sprintf("PID %d", snap.Process.PID))
+		}
+	}
+	return joinTooltip(lines)
+}
+
+// joinTooltip joins the tooltip's lines. The shell shows a version-4
+// notification icon's tip either as a NUL-separated pair or as one multi-line
+// string depending on the build, so the separator is applied here and the shell
+// does what it likes with the newlines.
+func joinTooltip(lines []string) string {
+	out := ""
+	for i, l := range lines {
+		if i > 0 {
+			out += "\n"
+		}
+		out += l
+		if len(out) > 120 {
+			break
+		}
+	}
+	return out
+}

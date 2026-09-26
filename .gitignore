@@ -1,0 +1,12 @@
+# Build output
+/dist/
+*.exe
+
+# Local configuration
+wbtray.conf
+*.log
+
+# Scratch output from the development commands
+/menu-sheets/
+/chart-sheets/
+/icon-sheets/

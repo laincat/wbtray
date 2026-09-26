@@ -1,0 +1,75 @@
+name: build
+
+# Builds the Windows binary and runs the tests.
+#
+# The module has no third-party requirements, so no module proxy is consulted and
+# the build works in a network-restricted runner. That is a property of the
+# design rather than an accident: see internal/winapi.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go vet ./...
+      - run: go test ./...
+      # The icon sheet is generated rather than committed from a designer's
+      # machine, so building it here is the check that the renderer still runs
+      # for every style and every theme.
+      - name: Render the icon sheets
+        run: go run ./cmd/preview -out design/styles-all.png
+      - uses: actions/upload-artifact@v4
+        with:
+          name: design-sheets
+          path: design/*.png
+
+  build:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            $version = $env:GITHUB_REF_NAME
+          } else {
+            $version = "0.0.0-" + $env:GITHUB_SHA.Substring(0,12)
+          }
+          # -H=windowsgui keeps a console window from appearing behind the tray
+          # icon, which is the difference between a tray application and a
+          # console program that happens to have an icon.
+          $ldflags = "-s -w -H=windowsgui -X main.version=$version"
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $env:CGO_ENABLED = "0"
+          go build -trimpath -ldflags $ldflags -o dist/wbtray.exe ./cmd/wbtray
+          Get-Item dist/wbtray.exe | Select-Object Name, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wbtray-windows
+          path: dist/wbtray.exe
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/wbtray.exe
+          generate_release_notes: true
