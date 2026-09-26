@@ -72,9 +72,11 @@ so what it says is what is true at that moment.
   the gateway address, open the configuration file, reload it.
 
 The menu is drawn by wbtray rather than by the shell, which is what allows
-previews and a theme of its own. A system menu is one click away for a screen
+previews and a palette of its own. A system menu is one click away for a screen
 reader, a locked-down desktop, or a machine where the drawn menu is simply
 unwanted; both are built from the same model.
+
+![The menu in the light appearance](design/menu-en-light.png)
 
 ## The chart window
 

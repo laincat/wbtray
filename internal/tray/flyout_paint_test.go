@@ -169,6 +169,76 @@ func TestCollapsedSubmenuHidesItsChildren(t *testing.T) {
 	}
 }
 
+// TestMenuHasAFrameAndKeepsContentInsideIt is the spacing rule.
+//
+// The first drawn menu had neither: rows ran to within a pixel of the plate's
+// edge, and there was no frame at all, so the menu read as a rectangle of colour
+// that happened to have text in it. What is checked here is the two things that
+// were wrong — a border is drawn, and nothing else is drawn on top of it.
+func TestMenuHasAFrameAndKeepsContentInsideIt(t *testing.T) {
+	th := theme.Neon()
+	f := &flyout{hover: -1, pressed: -1, subOwner: -1}
+	f.mu.Lock()
+	f.theme = th
+	f.scale = 1
+	f.mu.Unlock()
+	f.layout(sampleMenu())
+
+	f.mu.Lock()
+	rows, w, h := f.rows, f.width, f.height
+	f.mu.Unlock()
+	c := raster.New(w, h)
+	paintMenu(c, rows, 1, th, -1, 0)
+
+	// A frame: some pixel on the plate's edge is the border colour and not the
+	// surface colour.
+	foundEdge := false
+	for x := 0; x < w && !foundEdge; x++ {
+		if near(c.At(x, int(foShadowPad)), th.MenuEdge) {
+			foundEdge = true
+		}
+	}
+	if !foundEdge {
+		t.Error("the menu has no frame on its top edge")
+	}
+
+	// And the frame is not painted over: a border pixel replaced by the
+	// highlight would mean the selection is escaping the edge.
+	// The rows' own rectangles start below the edge, which is the arithmetic the
+	// painter relies on.
+	for _, r := range rows {
+		if r.rect.Y < foShadowPad+foEdge {
+			t.Errorf("row %q starts at y=%.0f, inside the frame at %.0f",
+				r.item.Text, r.rect.Y, foShadowPad+foEdge)
+		}
+	}
+}
+
+// TestRowNaturalWidthIncludesBothInsets pins the arithmetic the layout and the
+// painter share, because a disagreement between them is what clips labels.
+func TestRowNaturalWidthIncludesBothInsets(t *testing.T) {
+	it := traymenu.Command(1, "Open the console panel")
+	got := rowNaturalWidth(it, 0)
+	want := foInset + foCheckW +
+		float64(drawWidth(it.Text, foFontSize)) + foInset
+	if got != want {
+		t.Fatalf("rowNaturalWidth = %.0f, want %.0f", got, want)
+	}
+}
+
+// near reports whether two colours are within a small distance of each other,
+// which is how an antialiased edge is matched against the colour it came from.
+func near(a, b raster.RGBA) bool {
+	diff := func(x, y uint8) int {
+		d := int(x) - int(y)
+		if d < 0 {
+			return -d
+		}
+		return d
+	}
+	return diff(a.R, b.R) < 12 && diff(a.G, b.G) < 12 && diff(a.B, b.B) < 12 && a.A > 200
+}
+
 // TestRowsFitInsideThePlate is the invariant the first drawn menu broke: the
 // window was sized from a width that did not account for every column, so the
 // labels that needed the most room were the ones clipped.
