@@ -13,7 +13,7 @@
 
 图标本身就是读数，所以判断“有没有问题”不需要点开。**颜色**代表账号池健康度，**形状**代表你选择的指标。
 
-五种风格、两套配色、明暗两档，都是任务栏实际大小（16 像素）放大后的样子：
+八种风格、两套配色、明暗两档，都是任务栏实际大小（16 像素）放大后的样子：
 
 ![全部风格 16 像素](design/styles-all-16px.png)
 
@@ -130,7 +130,7 @@ discover = true
 interval_seconds = 3               # 读取面板的间隔
 timeout_seconds = 5
 
-style = ring                       # ring | bar | spark | mascot | plain
+style = ring          # ring | bar | spark | mascot | plain | bartext | text | mascottext
 metric = accounts                  # accounts | credits | requests | tokens |
                                    # latency | tps | queue
 theme = neon                       # neon | mono

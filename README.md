@@ -18,7 +18,7 @@ The icon is the readout, so the answer to "is anything wrong" does not need a
 click. Its **colour** is the health of the pool, and its **shape** carries
 whichever metric you choose.
 
-Each of the five styles, in both palettes, on both appearances, as the taskbar
+Each of the eight styles, in both palettes, on both appearances, as the taskbar
 actually draws them — 16 pixels, magnified here so the shapes are visible:
 
 ![Every style at 16 pixels](design/styles-all-16px.png)
@@ -163,6 +163,7 @@ interval_seconds = 3               # how often the panel is read
 timeout_seconds = 5
 
 style = ring                       # ring | bar | spark | mascot | plain
+                                   # bartext | text | mascottext
 metric = accounts                  # accounts | credits | requests | tokens |
                                    # latency | tps | queue
 theme = neon                       # neon | mono
