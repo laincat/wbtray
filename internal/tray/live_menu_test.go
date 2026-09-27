@@ -36,14 +36,14 @@ func (s *stubGateway) SetConsole(show bool) error { s.console = show; return nil
 func (s *stubGateway) AutoStartEnabled() bool     { return s.autoStart }
 func (s *stubGateway) SetAutoStart(on bool) error { s.autoStart = on; return nil }
 
-// TestTopLevelMenuIsNineRows is the shape of the whole rewrite.
+// TestTopLevelMenuIsEightRows is the shape of the whole rewrite.
 //
 // The menu used to put every figure, every style and every maintenance action at the
 // top level: twenty-six rows, taller than a laptop screen at a large text size, with
 // the rows an operator reaches for somewhere in the middle of it. The count is
 // asserted rather than described because the way a menu grows back is one reasonable
 // addition at a time.
-func TestTopLevelMenuIsNineRows(t *testing.T) {
+func TestTopLevelMenuIsEightRows(t *testing.T) {
 	cfg := config.Default()
 	cfg.Lang = "zh"
 	a := app.New(cfg, "", &stubGateway{pid: status.PIDInfo{Found: true, PID: 16780}}, app.Options{})
@@ -57,8 +57,8 @@ func TestTopLevelMenuIsNineRows(t *testing.T) {
 		}
 		rows++
 	}
-	if rows != 9 {
-		t.Errorf("the top level has %d rows, want 9:\n%s", rows, describe(items))
+	if rows != 8 {
+		t.Errorf("the top level has %d rows, want 8:\n%s", rows, describe(items))
 	}
 	if separators != 2 {
 		t.Errorf("the top level has %d separators, want 2", separators)
@@ -123,12 +123,13 @@ func describe(items []traymenu.Item) string {
 	return out
 }
 
-// TestCopySubmenuOffersBothValues checks the rows the submenu exists for.
+// TestGatewaySubmenuOffersBothCopyValues checks the rows the copy feature exists for.
 //
-// The address is what an operator pastes into a browser and the key is what a client
-// needs. Both were previously unreachable: the first because its row was inert, and
-// the second because no row existed at all.
-func TestCopySubmenuOffersBothValues(t *testing.T) {
+// They live in the gateway submenu because both values describe the gateway: its
+// address is where it listens, and its key is what it expects a client to present.
+// Both were previously unreachable — the first because its row was inert with an id
+// of zero, the second because no row existed at all.
+func TestGatewaySubmenuOffersBothCopyValues(t *testing.T) {
 	cfg := config.Default()
 	cfg.Lang = "zh"
 	cfg.BaseURL = "http://127.0.0.1:7863"
@@ -137,16 +138,22 @@ func TestCopySubmenuOffersBothValues(t *testing.T) {
 	a := app.New(cfg, "", &stubGateway{}, app.Options{})
 	item, ok := submenuWithChild(a.Menu(), app.IDCopyURL)
 	if !ok {
-		t.Fatalf("no copy submenu:\n%s", describe(a.Menu()))
-	}
-	if len(item.Children) != 2 {
-		t.Fatalf("the copy submenu has %d rows, want 2", len(item.Children))
+		t.Fatalf("no gateway submenu carrying the address row:\n%s", describe(a.Menu()))
 	}
 
-	addr := item.Children[0]
-	if addr.ID != app.IDCopyURL {
-		t.Errorf("the first row is id %d, want the address row", addr.ID)
+	var addr, key traymenu.Item
+	for _, child := range item.Children {
+		switch child.ID {
+		case app.IDCopyURL:
+			addr = child
+		case app.IDCopyKey:
+			key = child
+		}
 	}
+	if addr.ID == 0 || key.ID == 0 {
+		t.Fatalf("the gateway submenu holds no address and key pair:\n%s", describe(item.Children))
+	}
+
 	// The value shown is the host, which is the part that fits a menu column; what
 	// is copied is the full address with its scheme.
 	if addr.Value != "127.0.0.1:7863" {
@@ -155,14 +162,12 @@ func TestCopySubmenuOffersBothValues(t *testing.T) {
 	if addr.Disabled {
 		t.Error("the address row is inert")
 	}
-
-	key := item.Children[1]
-	if key.ID != app.IDCopyKey {
-		t.Errorf("the second row is id %d, want the key row", key.ID)
-	}
 	// The key itself must not be in the menu: an open menu is a screenshot.
 	if key.Value != "" {
 		t.Errorf("the key row carries the key itself: %q", key.Value)
+	}
+	if key.Disabled {
+		t.Error("the key row is inert even though a key is configured")
 	}
 }
 
@@ -177,9 +182,14 @@ func TestCopyKeyRowIsInertWithoutAKey(t *testing.T) {
 	a := app.New(cfg, "", &stubGateway{}, app.Options{})
 	item, ok := submenuWithChild(a.Menu(), app.IDCopyKey)
 	if !ok {
-		t.Fatalf("no copy submenu:\n%s", describe(a.Menu()))
+		t.Fatalf("no gateway submenu carrying the key row:\n%s", describe(a.Menu()))
 	}
-	key := item.Children[1]
+	var key traymenu.Item
+	for _, child := range item.Children {
+		if child.ID == app.IDCopyKey {
+			key = child
+		}
+	}
 	if !key.Disabled {
 		t.Error("the key row is clickable with no key to copy")
 	}

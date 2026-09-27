@@ -65,7 +65,6 @@ func (a *App) Menu() []traymenu.Item {
 
 	items = append(items,
 		a.gatewayItems(snap, cfg, lang, th),
-		a.copyItems(lang),
 		a.trayItems(cfg, th, lang),
 		a.moreItems(snap, paused, cfg, lang),
 		traymenu.Separator(),
@@ -104,26 +103,30 @@ func (a *App) statusRow(snap status.Snapshot, paused bool, cfg config.Config, th
 	}
 }
 
-// copyItems is the clipboard submenu.
+// copyAddrRow copies the gateway address.
 //
-// Both rows copy a value an operator otherwise has to go and find: the gateway
-// address lives in a configuration file, and the api key lives in the gateway's own
-// config.json. The key is never drawn into the menu — a screenshot of an open menu
-// should not be a credential — so that row is a verb and the balloon is the only
-// confirmation.
-func (a *App) copyItems(lang string) traymenu.Item {
-	addr := traymenu.Command(IDCopyURL, i18n.T(lang, "copy.addr"))
-	addr.Value = hostOf(a.BaseURL())
+// The value shown is the host, which is the part that fits a menu column; what is
+// copied is the full address with its scheme, because that is what pastes into a
+// browser or a client.
+func (a *App) copyAddrRow(lang string) traymenu.Item {
+	row := traymenu.Command(IDCopyURL, i18n.T(lang, "copy.addr"))
+	row.Value = hostOf(a.BaseURL())
+	return row
+}
 
-	key := traymenu.Command(IDCopyKey, i18n.T(lang, "copy.key"))
+// copyKeyRow copies the gateway API key.
+//
+// The key itself is never drawn into the menu — a screenshot of an open menu should
+// not be a credential — so the row is a verb and the balloon is the only
+// confirmation. With no key to copy the row is dimmed, which is more useful than a
+// row that reports success at copying an empty string.
+func (a *App) copyKeyRow(lang string) traymenu.Item {
+	row := traymenu.Command(IDCopyKey, i18n.T(lang, "copy.key"))
 	if a.PanelClient().Key() == "" {
-		// Nothing to copy, and saying so is more useful than a row that reports
-		// success at copying an empty string.
-		key.Disabled = true
-		key.Value = i18n.T(lang, "copy.none")
+		row.Disabled = true
+		row.Value = i18n.T(lang, "copy.none")
 	}
-
-	return traymenu.Submenu(i18n.T(lang, "menu.copy"), []traymenu.Item{addr, key})
+	return row
 }
 
 // trayItems is everything about how the tray itself looks and behaves.
@@ -385,7 +388,13 @@ func (a *App) gatewayItems(snap status.Snapshot, cfg config.Config, lang string,
 				i18n.T(lang, "menu.install_gateway")))
 		}
 	}
+	// The clipboard rows go with the gateway because both of the values they copy
+	// are the gateway's: its address is where it listens, and its key is what it
+	// expects a client to present. An operator looking for either looks here.
 	children = append(children,
+		traymenu.Separator(),
+		a.copyAddrRow(lang),
+		a.copyKeyRow(lang),
 		traymenu.Separator(),
 		traymenu.Check(IDGatewayAutoStart, i18n.T(lang, "menu.autostart"), a.gateway.AutoStartEnabled()),
 		traymenu.Command(IDOpenGatewayDir, i18n.T(lang, "menu.dir")),

@@ -72,15 +72,14 @@ time, so what it says is what is true at that moment.
 
 ![The menu](design/menu-en.png)
 
-Nine rows at the top level, each label two characters:
+Eight rows at the top level, each label two characters:
 
 | Row | What it does |
 |---|---|
 | **wbtray · healthy** | the state, with the gateway address beside it |
 | **Accounts** | ready over total, and the credits behind them |
 | **Panel** | opens the console, with the API key already filled in |
-| **Gateway ▸** | the pid, start / stop / restart, the console window, autostart, and the folder and file it lives in |
-| **Copy ▸** | the gateway address, or the API key |
+| **Gateway ▸** | the pid, start / stop / restart, the console window, the address and key to copy, autostart, and the folder and file it lives in |
 | **Tray ▸** | style, metric, palette, language, and the config file, folder and reload rows |
 | **More ▸** | the account list, the live figures, the version block, the seven maintenance actions, the chart, refresh and pause, and about |
 | **Autostart** | whether the tray starts with Windows |
@@ -94,10 +93,12 @@ information.
 
 ## What the copy rows offer
 
-Both values an operator otherwise has to go and find are one click away.
+Both values an operator otherwise has to go and find are one click away, under
+**Gateway ▸** — they are the gateway's own address and key, so that is where an
+operator looks for them.
 
-- **Copy ▸ Address** copies the full gateway URL, scheme and all.
-- **Copy ▸ API key** copies the key the tray is actually using, which for a
+- **Gateway ▸ Address** copies the full gateway URL, scheme and all.
+- **Gateway ▸ API key** copies the key the tray is actually using, which for a
   discovered gateway is the one from the gateway's own `config.json`. The key is
   never drawn into the menu — a screenshot of an open menu should not be a
   credential — so the balloon that confirms the copy is the only feedback.
