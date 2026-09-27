@@ -12,7 +12,13 @@ import (
 // The tray window's message handling.
 
 // wndProc handles the tray window's messages.
-func (t *Icon) wndProc(hwnd uintptr, msg uint32, wparam, lparam uintptr) uintptr {
+//
+// lparam is declared as a pointer rather than a uintptr so the two message
+// parameters that carry structs — MEASUREITEMSTRUCT and DRAWITEMSTRUCT — arrive
+// already typed. Converting a uintptr back into a pointer is what the vet pass
+// flags, and rightly: it is indistinguishable from a pointer that outlived its
+// object. An unsafe.Pointer argument carries no such ambiguity.
+func (t *Icon) wndProc(hwnd uintptr, msg uint32, wparam uintptr, lparam unsafe.Pointer) uintptr {
 	switch msg {
 	case callbackMsg:
 		// This shell uses the version-4 notification-icon protocol, which packs
@@ -21,7 +27,7 @@ func (t *Icon) wndProc(hwnd uintptr, msg uint32, wparam, lparam uintptr) uintptr
 		// first version of this did — matches nothing at all, because the value
 		// being compared is 0x0001xxxx rather than 0x0205, and the result is a
 		// tray icon that silently ignores every click.
-		switch winapi.LowWord(lparam) {
+		switch winapi.LowWord(uintptr(lparam)) {
 		case ninSelect, wmLButtonUp:
 			t.handleIconClick()
 		case wmLButtonDBL:
@@ -38,9 +44,42 @@ func (t *Icon) wndProc(hwnd uintptr, msg uint32, wparam, lparam uintptr) uintptr
 
 	case wmCommand:
 		if t.cb.Select != nil {
-			t.cb.Select(traymenu.Event{ID: winapi.LowWord(wparam), Native: true})
+			t.cb.Select(traymenu.Event{ID: winapi.LowWord(wparam)})
 		}
 		return 0
+
+	case wmMeasureItem:
+		// An owner-draw row reports its own height, because the shell has no way
+		// to know how tall a row it is not drawing should be.
+		t.mu.Lock()
+		painter := t.menuPainter
+		t.mu.Unlock()
+		if painter == nil {
+			return 0
+		}
+		mis := (*measureItemStruct)(lparam)
+		if mis.CtlType != odtMenu {
+			return 0
+		}
+		mis.ItemWidth = 320
+		mis.ItemHeight = uint32(painter.rowHeight)
+		return 1
+
+	case wmDrawItem:
+		// The status rows, painted here because the shell would dim the colour
+		// that is the entire reason they exist.
+		t.mu.Lock()
+		painter := t.menuPainter
+		t.mu.Unlock()
+		if painter == nil {
+			return 0
+		}
+		dis := (*drawItemStruct)(lparam)
+		if dis.CtlType != odtMenu {
+			return 0
+		}
+		drawStatus(painter, dis)
+		return 1
 
 	case wmTimer:
 		switch wparam {
@@ -73,7 +112,7 @@ func (t *Icon) wndProc(hwnd uintptr, msg uint32, wparam, lparam uintptr) uintptr
 		winapi.ProcPostQuitMessage.Call(0)
 		return 0
 	}
-	ret, _, _ := winapi.ProcDefWindowProcW.Call(hwnd, uintptr(msg), wparam, lparam)
+	ret, _, _ := winapi.ProcDefWindowProcW.Call(hwnd, uintptr(msg), wparam, uintptr(lparam))
 	return ret
 }
 
@@ -103,16 +142,9 @@ func (t *Icon) refreshIconBitmap() {
 	}
 }
 
-// showMenuAtCursor opens whichever menu the operator selected.
+// showMenuAtCursor opens the menu at the pointer.
 func (t *Icon) showMenuAtCursor() {
 	var pt winapi.Point
 	winapi.ProcGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
-	t.mu.Lock()
-	style := t.menuStyle
-	t.mu.Unlock()
-	if style == MenuNative {
-		t.showNativeMenu(int(pt.X), int(pt.Y))
-		return
-	}
-	t.showFlyout()
+	t.showNativeMenu(int(pt.X), int(pt.Y))
 }

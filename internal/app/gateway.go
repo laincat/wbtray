@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"wbtray/internal/install"
 	"wbtray/internal/i18n"
+	"wbtray/internal/install"
 	"wbtray/internal/status"
 )
 

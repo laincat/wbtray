@@ -51,7 +51,7 @@ func Gateway() Source {
 		AssetName: func(v string) string {
 			return "wb2api-panel-" + v + "-windows-amd64.zip"
 		},
-		MirrorAssetName: "workbuddy2api-panel-windows-amd64.zip",
+		MirrorAssetName:    "workbuddy2api-panel-windows-amd64.zip",
 		MirrorVersionAsset: "workbuddy2api-panel-version.txt",
 	}
 }

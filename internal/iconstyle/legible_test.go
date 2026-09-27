@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"wbtray/internal/raster"
 	"wbtray/internal/config"
+	"wbtray/internal/raster"
 	"wbtray/internal/theme"
 )
 

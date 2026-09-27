@@ -33,8 +33,10 @@ type Options struct {
 	OpenPath func(path string) error
 	// RefreshIcon asks the front end to repaint the tray icon.
 	RefreshIcon func()
-	// SetMenuStyle switches between the drawn and the system menu.
-	SetMenuStyle func(native bool)
+	// RecordGatewayVersion notes which version of the gateway is on disk. It is
+	// how a copy that was unpacked by hand, and therefore has no version file,
+	// acquires one.
+	RecordGatewayVersion func(version string)
 	// SystemDark reports whether Windows is using its dark app theme, so the
 	// "follow the system" appearance can be resolved.
 	SystemDark func() bool
@@ -76,9 +78,6 @@ type App struct {
 	snap   status.Snapshot
 	snapAt time.Time
 	paused bool
-	// hoveredPreview holds the style a hovered menu row is previewing, which is
-	// the tray's version of a preview thumbnail.
-	hoveredPreview string
 
 	// failures counts consecutive failed refreshes, which is what decides when a
 	// gateway that has gone away is worth a notification.
@@ -261,13 +260,10 @@ func (a *App) Lang() string {
 	return a.cfg.Lang
 }
 
-// Style is the icon style in force, possibly a hovered preview of one.
+// Style is the icon style in force.
 func (a *App) Style() string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.hoveredPreview != "" {
-		return a.hoveredPreview
-	}
 	return a.cfg.Style
 }
 
@@ -278,23 +274,10 @@ func (a *App) Metric() string {
 	return a.cfg.Metric
 }
 
-// PreviewStyle makes the icon show a style without saving it, which is what a
-// hovered row in the style gallery does. An empty name ends the preview.
-func (a *App) PreviewStyle(style string) {
-	a.mu.Lock()
-	changed := a.hoveredPreview != style
-	a.hoveredPreview = style
-	a.mu.Unlock()
-	if changed {
-		a.refreshIcon()
-	}
-}
-
 // SetStyle saves a style as the operator's choice.
 func (a *App) SetStyle(style string) {
 	a.mu.Lock()
 	a.cfg.Style = style
-	a.hoveredPreview = ""
 	a.mu.Unlock()
 	a.save()
 	a.refreshIcon()
@@ -357,21 +340,6 @@ func (a *App) Theme() theme.Theme {
 	return theme.Resolve(name, theme.ParseAppearance(appearance), systemDark)
 }
 
-// SetMenuStyle remembers which menu style the operator prefers.
-func (a *App) SetMenuStyle(native bool) {
-	a.mu.Lock()
-	if native {
-		a.cfg.MenuStyle = "native"
-	} else {
-		a.cfg.MenuStyle = "flyout"
-	}
-	a.mu.Unlock()
-	a.save()
-	if a.opts.SetMenuStyle != nil {
-		a.opts.SetMenuStyle(native)
-	}
-}
-
 // SetShowConsole remembers whether the gateway should be started with a visible
 // window.
 func (a *App) SetShowConsole(show bool) {
@@ -429,11 +397,38 @@ func (a *App) Refresh() {
 	a.snapAt = snap.At
 	a.mu.Unlock()
 
+	a.learnGatewayVersion(snap)
 	a.react(snap)
 	a.refreshIcon()
 	if fe := a.FrontEnd(); fe != nil {
 		fe.SetTooltip(a.Tooltip())
 	}
+}
+
+// learnGatewayVersion fills in the gateway's version from the gateway itself.
+//
+// The version is normally recorded in a small file at install time. A copy that was
+// unpacked by hand has no such file, and the symptom is not an error: the version
+// block simply shows nothing under "installed", forever. The running gateway knows
+// what it is, so the first successful reading is the moment to write it down.
+func (a *App) learnGatewayVersion(snap status.Snapshot) {
+	if snap.Version == "" || !a.GatewayInstalled() {
+		return
+	}
+	a.mu.Lock()
+	known := a.gatewayVersion
+	if known == "" {
+		a.gatewayVersion = snap.Version
+	}
+	record := a.opts.RecordGatewayVersion
+	a.mu.Unlock()
+
+	if known != "" || record == nil {
+		return
+	}
+	// A failure here is not worth a balloon: the version is now known to this
+	// process either way, and the next start will try again.
+	record(snap.Version)
 }
 
 // react turns a changed state into a notification, once per transition rather
@@ -516,9 +511,6 @@ func (a *App) Reload() error {
 	a.cfg = cfg
 	a.mu.Unlock()
 	a.client = panel.New(cfg.BaseURL, cfg.APIKey, time.Duration(cfg.TimeoutSec)*time.Second)
-	if a.opts.SetMenuStyle != nil {
-		a.opts.SetMenuStyle(cfg.MenuStyle == "native")
-	}
 	a.Refresh()
 	return nil
 }

@@ -1,5 +1,4 @@
-// Package traymenu is the menu model the tray draws and the system menu is built
-// from.
+// Package traymenu is the menu model the system menu is built from.
 //
 // It exists as its own package, free of any Windows import, because the model is
 // where the application's decisions live — which rows exist, what they say, what
@@ -13,7 +12,7 @@ type Kind int
 
 // The kinds of row a menu can hold.
 const (
-	// Command is an ordinary clickable row.
+	// CommandRow is an ordinary clickable row.
 	CommandRow Kind = iota
 	// CheckRow is a toggle; its state is drawn from Checked.
 	CheckRow
@@ -40,6 +39,13 @@ type Item struct {
 	Bold    bool
 	// Disabled rows are drawn dimmed and do not respond.
 	Disabled bool
+	// OwnerDraw asks the front end to paint the row itself.
+	//
+	// It exists for one reason: a row the system dims has its icon dimmed with
+	// it, so a health colour drawn as a menu bitmap comes out grey exactly where
+	// it carries the most meaning. A row drawn by hand keeps its colour, which is
+	// why the status rows use this and the rest of the menu does not.
+	OwnerDraw bool
 	// Dot draws a small coloured pip before the label, which is how a status row
 	// shows health without a second column of text.
 	Dot raster.RGBA
@@ -47,20 +53,7 @@ type Item struct {
 	Children []Item
 	// Preview is the rendered icon for a style row.
 	Preview *raster.Canvas
-	// expanded reports whether a submenu's children are shown inline. The drawn
-	// menu keeps them in place rather than opening a second window: one column
-	// that scrolls is easier to use than a cascade.
-	expanded bool
 }
-
-// Expanded marks a submenu row whose children are shown inline.
-func (i Item) Expanded(on bool) Item {
-	i.expanded = on
-	return i
-}
-
-// IsExpanded reports whether the row's children are shown inline.
-func (i Item) IsExpanded() bool { return i.expanded }
 
 // Command builds a plain clickable row.
 func Command(id uint32, text string) Item {
@@ -77,9 +70,25 @@ func Radio(id uint32, text string, selected bool) Item {
 	return Item{Kind: RadioRow, ID: id, Text: text, Checked: selected}
 }
 
-// Value builds a readout row.
+// Value builds a readout row, which the system draws dimmed and inert.
 func Value(text, value string) Item {
 	return Item{Kind: ValueRow, Text: text, Value: value, Disabled: true}
+}
+
+// Status builds a readout row that the front end paints itself.
+//
+// It is a value row in every respect but the drawing, so the colour it carries
+// survives the system's habit of dimming anything that cannot be clicked.
+func Status(text, value string, dot raster.RGBA, bold bool) Item {
+	return Item{
+		Kind:      ValueRow,
+		Text:      text,
+		Value:     value,
+		Dot:       dot,
+		Bold:      bold,
+		Disabled:  true,
+		OwnerDraw: true,
+	}
 }
 
 // Submenu builds a row that opens a nested list.
@@ -94,35 +103,4 @@ func Separator() Item { return Item{Kind: SeparatorRow} }
 type Event struct {
 	// ID is the command that was chosen, or 0 for a dismissal.
 	ID uint32
-	// Native is true when the click came from the system menu, which cannot show
-	// previews or keep a row's state in place.
-	Native bool
-}
-
-// CountRows returns how many rows a menu and its children hold, which is what
-// decides whether scrolling is needed.
-func CountRows(items []Item) int {
-	n := 0
-	for _, it := range items {
-		n++
-		if it.Kind == SubmenuRow {
-			n += CountRows(it.Children)
-		}
-	}
-	return n
-}
-
-// Find returns the row with an id, searching submenus.
-func Find(items []Item, id uint32) (Item, bool) {
-	for _, it := range items {
-		if it.Kind != SubmenuRow && it.ID == id {
-			return it, true
-		}
-		if it.Kind == SubmenuRow {
-			if found, ok := Find(it.Children, id); ok {
-				return found, true
-			}
-		}
-	}
-	return Item{}, false
 }

@@ -67,35 +67,43 @@ of the same accounting.
 
 ## What the menu offers
 
-Right-clicking the icon opens a menu that is rebuilt from live state every time,
-so what it says is what is true at that moment.
+Right-clicking the icon opens the shell's own menu, rebuilt from live state every
+time, so what it says is what is true at that moment.
 
-- **A block of live numbers**: accounts ready, credits, requests, tokens,
-  latency, throughput, in flight, cooling, disabled, log lines, gateway version.
-- **The account list**, one row per account with its balance and a coloured pip
-  for ready / cooling / busy / disabled.
-- **The style gallery**, where every style is drawn as the icon it would produce,
-  with the live numbers and theme applied. Hovering a row paints that style onto
-  the real tray icon, so a choice can be tried before it is made.
-- **The palette**, and whether to follow the Windows light/dark mode or pin it.
-- **The metric**, the language, and which kind of menu to use.
-- **The gateway process**: start, stop, restart, show or hide its console
-  window, and whether it starts with Windows.
-- **Maintenance actions**: check in, travel, report activity, keep tokens alive,
-  refresh balances, scan the task centre, run the task queue.
-- **Links**: open the console panel (with the API key already filled in), copy
-  the gateway address, open the configuration file, reload it.
+![The menu](design/menu-en.png)
 
-The menu is drawn by wbtray rather than by the shell, which is what allows
-previews and a palette of its own. A system menu is one click away for a screen
-reader, a locked-down desktop, or a machine where the drawn menu is simply
-unwanted; both are built from the same model.
+Nine rows at the top level, each label two characters:
 
-![The menu in the light appearance](design/menu-en-light.png)
+| Row | What it does |
+|---|---|
+| **wbtray · healthy** | the state, with the gateway address beside it |
+| **Accounts** | ready over total, and the credits behind them |
+| **Panel** | opens the console, with the API key already filled in |
+| **Gateway ▸** | the pid, start / stop / restart, the console window, autostart, and the folder and file it lives in |
+| **Copy ▸** | the gateway address, or the API key |
+| **Tray ▸** | style, metric, palette, language, and the config file, folder and reload rows |
+| **More ▸** | the account list, the live figures, the version block, the seven maintenance actions, the chart, refresh and pause, and about |
+| **Autostart** | whether the tray starts with Windows |
+| **Exit** | quits the tray; the gateway keeps running |
 
-The style gallery, where hovering a row paints that style onto the real tray icon:
+The rows that carry a colour are the two status rows, and they are drawn by
+wbtray rather than by the shell. That is not a preference: a menu row the shell
+draws is dimmed when it cannot be clicked, and its icon is dimmed with it, so a
+health colour in a plain row comes out grey exactly where it carries the most
+information.
 
-![The style gallery](design/menu-gallery.png)
+## What the copy rows offer
+
+Both values an operator otherwise has to go and find are one click away.
+
+- **Copy ▸ Address** copies the full gateway URL, scheme and all.
+- **Copy ▸ API key** copies the key the tray is actually using, which for a
+  discovered gateway is the one from the gateway's own `config.json`. The key is
+  never drawn into the menu — a screenshot of an open menu should not be a
+  credential — so the balloon that confirms the copy is the only feedback.
+
+The key row is dimmed when there is no key to copy, rather than reporting success
+at copying an empty string.
 
 ## The chart window
 
@@ -111,8 +119,6 @@ use the arrow keys.
 The same window at the smallest size it allows:
 
 ![The chart window at its minimum size](design/chart-minimum.png)
-
-![The menu, with accounts and a gateway running](design/menu-en.png)
 
 ## Install
 
@@ -169,7 +175,6 @@ metric = accounts                  # accounts | credits | requests | tokens |
 theme = neon                       # neon | mono
 appearance = auto                  # auto | dark | light
 lang = zh                          # zh | en
-menu_style = flyout                # flyout | native
 
 show_console = false               # start the gateway with a visible window
 manage_process = true              # let the tray start and stop it

@@ -4,7 +4,6 @@ package main
 
 import (
 	"context"
-	"strings"
 	"time"
 	"unsafe"
 
@@ -30,9 +29,6 @@ func (f *frontEnd) RefreshWindows() { repaintChartWindow() }
 func contextWithTimeout(d time.Duration) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), d)
 }
-
-// stringsReader adapts a string to the io.Reader the clipboard command wants.
-func stringsReader(s string) *strings.Reader { return strings.NewReader(s) }
 
 // messageBox shows the shell's own message box, which is the right size for an
 // about panel and already follows the system's accessibility settings.

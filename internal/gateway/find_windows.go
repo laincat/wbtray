@@ -17,16 +17,32 @@ import (
 // DefaultName is the executable the gateway ships as.
 const DefaultName = "wb2api.exe"
 
+// GatewaySubdir is the directory the tray installs the gateway into, beside its
+// own executable.
+//
+// It is duplicated from the install package rather than imported, because the
+// gateway package is the one that answers "where is a gateway" and the install
+// package answers "where do I put one"; importing the second from the first would
+// make the search depend on the installer.
+const GatewaySubdir = "wb2api"
+
 // CandidateDirs are the places an installed gateway usually lives, in the order
-// they are checked. The directory beside the tray executable comes first, since
-// that is what an unpacked release looks like.
+// they are checked.
+//
+// The tray's own directory comes first, and within it the wb2api subdirectory
+// before the directory itself, because that is where the tray installs a gateway
+// and therefore where it is most likely to be. Leaving the subdirectory out — which
+// is what this did — made "stop, then start" fail on the tray's own installation:
+// the tray could stop a gateway it could see in the process list and then could not
+// find it on disk, which read as a gateway that had vanished.
 func CandidateDirs() []string {
 	var dirs []string
 	if exe, err := os.Executable(); err == nil {
-		dirs = append(dirs, filepath.Dir(exe))
+		dir := filepath.Dir(exe)
+		dirs = append(dirs, filepath.Join(dir, GatewaySubdir), dir)
 	}
 	if cwd, err := os.Getwd(); err == nil {
-		dirs = append(dirs, cwd)
+		dirs = append(dirs, filepath.Join(cwd, GatewaySubdir), cwd)
 	}
 	dirs = append(dirs,
 		filepath.Join(os.Getenv("ProgramFiles"), "wb2api-panel"),

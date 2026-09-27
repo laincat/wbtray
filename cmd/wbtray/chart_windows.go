@@ -16,8 +16,8 @@ import (
 	"wbtray/internal/i18n"
 	"wbtray/internal/raster"
 	"wbtray/internal/status"
-	"wbtray/internal/theme"
 	"wbtray/internal/textmask"
+	"wbtray/internal/theme"
 	"wbtray/internal/winapi"
 )
 
@@ -44,8 +44,8 @@ const (
 	// was axis figures clipped at the window edge with the legend drawn over
 	// them — the arithmetic placed the chart from chPad without reserving room
 	// for the text that describes it.
-	chAxisH = 20.0
-	chAxisW = 52.0
+	chAxisH    = 20.0
+	chAxisW    = 52.0
 	chGridRows = 4
 	chSamples  = 60
 
@@ -207,8 +207,8 @@ func (w *chartWindow) create() error {
 
 // Chart window messages that are not in the shared table.
 const (
-	wmSize     = 0x0005
-	wmKeyDown  = 0x0100
+	wmSize          = 0x0005
+	wmKeyDown       = 0x0100
 	wmGetMinMaxInfo = 0x0024
 	wmNcDestroy     = 0x0082
 	wmDestroy       = 0x0002
@@ -259,7 +259,7 @@ func (w *chartWindow) wndProc(hwnd uintptr, msg uint32, wparam, lparam uintptr) 
 		w.onClick(lparam)
 		return 0
 	case wmMouseWheel:
-		w.onWheel(int32(int16(wparam>>16)))
+		w.onWheel(int32(int16(wparam >> 16)))
 		return 0
 	case wmKeyDown:
 		switch uint32(wparam) {

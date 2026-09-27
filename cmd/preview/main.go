@@ -26,8 +26,8 @@ import (
 	"strings"
 
 	"wbtray/internal/config"
-	"wbtray/internal/iconstyle"
 	"wbtray/internal/i18n"
+	"wbtray/internal/iconstyle"
 	"wbtray/internal/raster"
 	"wbtray/internal/status"
 	"wbtray/internal/theme"
@@ -286,13 +286,13 @@ func sampleSnapshot(ready, total int, credits int64, latency, tps float64, token
 		Uptime:    7325,
 		Accounts:  accounts,
 		Usage: status.Usage{
-			Requests:      128400,
-			Errors:        913,
-			TotalTokens:   tokens,
-			AvgLatencyMs:  latency,
-			AvgTPS:        tps,
-			Series:        series,
-			Labels:        labels,
+			Requests:     128400,
+			Errors:       913,
+			TotalTokens:  tokens,
+			AvgLatencyMs: latency,
+			AvgTPS:       tps,
+			Series:       series,
+			Labels:       labels,
 		},
 	}
 }

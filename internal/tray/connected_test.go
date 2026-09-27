@@ -3,7 +3,6 @@
 package tray
 
 import (
-	"os"
 	"testing"
 
 	"wbtray/internal/app"
@@ -13,13 +12,10 @@ import (
 	"wbtray/internal/theme"
 )
 
-// liveGateway is a fake panel server that answers the four endpoints the tray
-// reads, so the connected state can be drawn and inspected without a gateway.
-//
-// It is deliberately a real HTTP server rather than a stubbed client: the point
-// is to exercise the path from the gateway's JSON through the client into the
-// menu, and a stub at the client boundary would skip the parsing as well as the
-// layout.
+// TestConnectedMenuDrawsLiveNumbers exercises the path from the gateway's JSON
+// through the client into the menu, against a real HTTP server rather than a
+// stubbed client: a stub at that boundary would skip the parsing as well as the
+// menu.
 func TestConnectedMenuDrawsLiveNumbers(t *testing.T) {
 	server := newFakePanel(t)
 	defer server.Close()
@@ -64,43 +60,14 @@ func TestConnectedMenuDrawsLiveNumbers(t *testing.T) {
 		t.Fatalf("series has %d buckets, want 24", len(snap.Usage.Series))
 	}
 
+	// The status row shows the live pair, which is what makes the header worth
+	// looking at without opening anything else.
 	items := a.Menu()
-	f := &flyout{hover: -1, pressed: -1, subOwner: -1}
-	f.mu.Lock()
-	f.theme = theme.Neon()
-	f.scale = 1
-	f.mu.Unlock()
-	f.layout(items)
-	f.mu.Lock()
-	rows, w, h := f.rows, f.width, f.height
-	f.mu.Unlock()
-
-	c := raster.New(w, h)
-	paintMenu(c, rows, 1, theme.Neon(), -1, 0)
-	if dir := os.Getenv("WBTRAY_MENU_DIR"); dir != "" {
-		writeSheet(t, dir, "connected-en", c)
+	if items[0].Value == "" || items[1].Value == "" {
+		t.Errorf("the status rows carry no values:\n%s", describe(items))
 	}
-
-	// The same menu in Chinese, which is the other half of the promise: a
-	// translation that overflows the plate is a layout failure, and the two
-	// languages have different lengths for almost every row.
-	cfgZh := cfg
-	cfgZh.Lang = "zh"
-	aZh := app.New(cfgZh, "", &stubGateway{pid: status.PIDInfo{Found: true, PID: 16780, Started: true}}, app.Options{})
-	aZh.Refresh()
-	fZh := &flyout{hover: -1, pressed: -1, subOwner: -1}
-	fZh.mu.Lock()
-	fZh.theme = theme.Neon()
-	fZh.scale = 1
-	fZh.mu.Unlock()
-	fZh.layout(aZh.Menu())
-	fZh.mu.Lock()
-	rowsZh, wZh, hZh := fZh.rows, fZh.width, fZh.height
-	fZh.mu.Unlock()
-	cZh := raster.New(wZh, hZh)
-	paintMenu(cZh, rowsZh, 1, theme.Neon(), -1, 0)
-	if dir := os.Getenv("WBTRAY_MENU_DIR"); dir != "" {
-		writeSheet(t, dir, "connected-zh", cZh)
+	if !contains(items[1].Value, "1/3") {
+		t.Errorf("the account row shows %q, want the ready/total pair", items[1].Value)
 	}
 
 	// The tooltip is the other surface the same numbers reach.
@@ -114,8 +81,8 @@ func TestConnectedMenuDrawsLiveNumbers(t *testing.T) {
 }
 
 // TestIconRendersForEveryStyleAndTheme is the cheap version of the sheet in
-// cmd/preview, run as a test so a style that panics on a missing metric is
-// caught by the ordinary test command.
+// cmd/preview, run as a test so a style that panics on a missing metric is caught by
+// the ordinary test command.
 func TestIconRendersForEveryStyleAndTheme(t *testing.T) {
 	server := newFakePanel(t)
 	defer server.Close()
@@ -154,17 +121,14 @@ func TestIconRendersForEveryStyleAndTheme(t *testing.T) {
 						t.Errorf("%s/%s/%s at %d is nearly empty (%d pixels)",
 							th.Name, style, metric, size, opaque)
 					}
-					if dir := os.Getenv("WBTRAY_ICON_DIR"); dir != "" && size == 32 {
-						writeIconSheet(t, dir, th.Name, style, metric, c)
-					}
 				}
 			}
 		}
 	}
 }
 
-// TestIconAdaptsToHealth checks the property the whole design rests on: an icon
-// for a broken gateway does not look like an icon for a healthy one.
+// TestIconAdaptsToHealth checks the property the whole design rests on: an icon for
+// a broken gateway does not look like an icon for a healthy one.
 func TestIconAdaptsToHealth(t *testing.T) {
 	healthy := status.Snapshot{
 		Reachable: true, Total: 2, Healthy: 2,
@@ -185,6 +149,9 @@ func iconCanvasFor(t *testing.T, snap status.Snapshot, th theme.Theme) *raster.C
 	return renderForTest(t, config.StyleRing, config.MetricAccounts, 32, th, snap)
 }
 
+// samePixels reports whether two icons are identical, which is how a test tells
+// "the icon reacted to the state" from "the icon is drawn from the state in name
+// only".
 func samePixels(a, b *raster.Canvas) bool {
 	if a == nil || b == nil || a.W != b.W || a.H != b.H {
 		return false
@@ -199,8 +166,21 @@ func samePixels(a, b *raster.Canvas) bool {
 	return true
 }
 
-// fakePanel answers the tray's four endpoints.
+// fakePanel answers the endpoints the tray reads.
 func newFakePanel(t *testing.T) *fakeServer {
 	t.Helper()
 	return startFakePanel(t)
+}
+
+func contains(haystack, needle string) bool {
+	return len(haystack) >= len(needle) && (len(needle) == 0 || indexOfSub(haystack, needle) >= 0)
+}
+
+func indexOfSub(haystack, needle string) int {
+	for i := 0; i+len(needle) <= len(haystack); i++ {
+		if haystack[i:i+len(needle)] == needle {
+			return i
+		}
+	}
+	return -1
 }

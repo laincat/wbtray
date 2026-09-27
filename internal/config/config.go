@@ -61,14 +61,14 @@ var Metrics = []string{MetricAccounts, MetricCredits, MetricRequests, MetricToke
 type Config struct {
 	// BaseURL is the gateway root, without a trailing slash. The API key is the
 	// one from the gateway's config.json and travels as a Bearer token.
-	BaseURL     string
-	APIKey      string
+	BaseURL string
+	APIKey  string
 	// DiscoveryEnabled lets the tray read the gateway's own config.json for the
 	// API key and listen address when this file does not set them, which is what
 	// makes a first run work without copying anything by hand.
 	DiscoveryEnabled bool
-	IntervalSec int
-	TimeoutSec  int
+	IntervalSec      int
+	TimeoutSec       int
 
 	Style  string
 	Metric string
@@ -79,8 +79,6 @@ type Config struct {
 	// Appearance decides when that palette is used: always, or matching whatever
 	// Windows is doing.
 	Appearance string
-	// MenuStyle is "flyout" for the drawn menu or "native" for the system menu.
-	MenuStyle string
 
 	// ShowConsole controls whether the gateway runs with a visible console
 	// window when the tray starts it.
@@ -101,18 +99,17 @@ type Config struct {
 // Default returns the configuration a first run uses.
 func Default() Config {
 	return Config{
-		BaseURL:       "http://127.0.0.1:7863",
+		BaseURL:          "http://127.0.0.1:7863",
 		DiscoveryEnabled: true,
-		IntervalSec:   3,
-		TimeoutSec:    5,
-		Style:         StyleRing,
-		Metric:        MetricAccounts,
-		Lang:          "zh",
-		Theme:         "neon",
-		Appearance:    "auto",
-		MenuStyle:     "flyout",
-		ShowConsole:   false,
-		ManageProcess: true,
+		IntervalSec:      3,
+		TimeoutSec:       5,
+		Style:            StyleRing,
+		Metric:           MetricAccounts,
+		Lang:             "zh",
+		Theme:            "neon",
+		Appearance:       "auto",
+		ShowConsole:      false,
+		ManageProcess:    true,
 	}
 }
 
@@ -175,7 +172,9 @@ func apply(cfg *Config, key, value string) {
 	case "appearance":
 		cfg.Appearance = value
 	case "menu_style":
-		cfg.MenuStyle = value
+		// Retired: the menu is the system menu, and there is no other. The key is
+		// accepted and ignored rather than rejected, so a configuration file
+		// written by an older build still opens.
 	case "lang", "language":
 		cfg.Lang = value
 	case "show_console":
@@ -242,9 +241,6 @@ func normalize(cfg *Config) {
 		cfg.Appearance = "light"
 	default:
 		cfg.Appearance = "auto"
-	}
-	if cfg.MenuStyle != "native" {
-		cfg.MenuStyle = "flyout"
 	}
 }
 
@@ -319,8 +315,7 @@ func Save(path string, cfg Config) error {
 	fmt.Fprintf(&b, "metric = %s\n", cfg.Metric)
 	fmt.Fprintf(&b, "theme = %s\n", cfg.Theme)
 	fmt.Fprintf(&b, "appearance = %s\n", cfg.Appearance)
-	fmt.Fprintf(&b, "lang = %s\n", cfg.Lang)
-	fmt.Fprintf(&b, "menu_style = %s\n\n", cfg.MenuStyle)
+	fmt.Fprintf(&b, "lang = %s\n\n", cfg.Lang)
 	fmt.Fprintf(&b, "show_console = %t\n", cfg.ShowConsole)
 	fmt.Fprintf(&b, "manage_process = %t\n", cfg.ManageProcess)
 	fmt.Fprintf(&b, "autostart = %t\n", cfg.AutoStart)

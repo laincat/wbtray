@@ -1,12 +1,14 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
 	"wbtray/internal/config"
 	"wbtray/internal/i18n"
 	"wbtray/internal/iconstyle"
+	"wbtray/internal/panel"
 	"wbtray/internal/raster"
 	"wbtray/internal/status"
 	"wbtray/internal/theme"
@@ -15,15 +17,23 @@ import (
 
 // The menu model.
 //
-// It is rebuilt from live state on every open, which is what lets it show
-// current numbers rather than the ones that were true when the tray started.
-// Submenus are used for anything with more than a handful of rows — the style
-// gallery, the metric list, the account list — so the top level stays short
-// enough to read at a glance.
+// It is rebuilt from live state on every open, which is what lets it show current
+// numbers rather than the ones that were true when the tray started.
+//
+// The top level is deliberately nine rows and no more. A tray menu is opened to do
+// one of a few things — look at the state, open the console, start or stop the
+// gateway, change how the tray looks — and everything else is a click away inside a
+// submenu. The earlier menu put every figure, every style and every maintenance
+// action within reach of one right-click, and the rows worth reaching for were lost
+// among them.
+//
+// Every label is two characters in Chinese and one short word in English, so the
+// column reads as a list rather than as a paragraph. That is a constraint worth
+// keeping rather than a coincidence: a long label beside a short one makes the
+// short one look like a different kind of thing.
 
 // previewSize is the pixel size of a style row's preview: the same size the
-// taskbar uses, so the gallery shows the real thing rather than an
-// approximation.
+// taskbar uses, so the gallery shows the real thing rather than an approximation.
 const previewSize = 20
 
 // Menu builds the model for the front end.
@@ -36,75 +46,146 @@ func (a *App) Menu() []traymenu.Item {
 	th := a.Theme()
 	health := healthOf(snap, paused)
 
-	// The header carries the state and the gateway's version, not its address: a
-	// full URL beside a label leaves room for neither, and the address is already
-	// a row of its own further down, where copying it is the point.
-	header := traymenu.Item{
-		Kind: traymenu.ValueRow,
-		Text: fmt.Sprintf("%s · %s", i18n.T(lang, "app.name"), healthLabel(lang, health)),
-		Dot:  colorOf(th, health),
-		Bold: true,
+	// The two status rows. They are the only rows the front end paints, because
+	// they are the only rows whose colour is information: the system dims a row it
+	// cannot click, and it dims the row's icon with it.
+	items := []traymenu.Item{
+		traymenu.Status(
+			fmt.Sprintf("%s · %s", i18n.T(lang, "app.name"), healthLabel(lang, health)),
+			hostOf(cfg.BaseURL), colorOf(th, health), true),
 	}
-	header.Value = hostOf(cfg.BaseURL)
-	items := []traymenu.Item{header}
+	items = append(items, a.statusRow(snap, paused, cfg, th, lang))
+	items = append(items, traymenu.Separator())
 
-	items = append(items, a.liveItems(snap, paused, cfg)...)
-	items = append(items, traymenu.Separator())
-	items = append(items, a.accountItems(snap, lang))
-	items = append(items, traymenu.Command(IDChartWindow, i18n.T(lang, "menu.chart")))
-	// A gateway that is neither running nor installed is the one situation where
-	// the next thing to do is not discoverable from anywhere in this menu: there
-	// is nothing to inspect and nothing to start. The row goes at the top level
-	// rather than inside the process block, because an operator in that state has
-	// no reason to go looking inside a block about a process that does not exist.
-	if !snap.Process.Found && !a.GatewayInstalled() {
-		items = append(items, traymenu.Command(IDInstallGateway, i18n.T(lang, "menu.install_gateway")))
-	}
-	items = append(items, traymenu.Separator())
+	// The console is the one row worth a keyboard shortcut, so it is the menu's
+	// default item: Enter reaches it without moving to it.
+	panel := traymenu.Command(IDOpenPanel, i18n.T(lang, "menu.panel"))
+	panel.Bold = true
+	items = append(items, panel)
 
 	items = append(items,
-		traymenu.Submenu(i18n.T(lang, "menu.style"), a.styleItems(cfg, th, lang)).
-			Expanded(cfg.MenuStyle != "native"),
-		traymenu.Submenu(i18n.T(lang, "menu.theme"), themeItems(a, cfg, lang)),
-		traymenu.Submenu(i18n.T(lang, "menu.metric"), metricItems(cfg, lang)),
-		traymenu.Submenu(i18n.T(lang, "menu.language"), []traymenu.Item{
-			traymenu.Radio(IDLangBase, "简体中文", cfg.Lang == "zh"),
-			traymenu.Radio(IDLangBase+1, "English", cfg.Lang == "en"),
-		}),
-		traymenu.Radio(IDClassicMenu, i18n.T(lang, "menu.classic"), cfg.MenuStyle == "native"),
-		traymenu.Separator(),
 		a.gatewayItems(snap, cfg, lang, th),
-		a.updateItems(lang),
-		a.taskItems(lang),
+		a.copyItems(lang),
+		a.trayItems(cfg, th, lang),
+		a.moreItems(snap, paused, cfg, lang),
 		traymenu.Separator(),
-		traymenu.Command(IDOpenPanel, i18n.T(lang, "menu.open_panel")),
-		traymenu.Command(IDCopyURL, i18n.T(lang, "menu.copy_url")),
-		traymenu.Command(IDOpenConfig, i18n.T(lang, "menu.open_config")),
-		traymenu.Command(IDReload, i18n.T(lang, "menu.reload")),
-		traymenu.Command(IDRefresh, i18n.T(lang, "menu.refresh")),
-	)
-	if paused {
-		items = append(items, traymenu.Command(IDPause, i18n.T(lang, "menu.resume")))
-	} else {
-		items = append(items, traymenu.Command(IDPause, i18n.T(lang, "menu.pause")))
-	}
-	items = append(items, traymenu.Separator(),
 		traymenu.Check(IDTrayAutoStart, i18n.T(lang, "menu.autostart"), a.TrayAutoStart()),
-		traymenu.Command(IDAbout, i18n.T(lang, "menu.about")),
 		traymenu.Command(IDQuit, i18n.T(lang, "menu.exit")),
 	)
 	return items
 }
 
-// liveItems is the block of current numbers. Each row is one metric, which is
-// what makes the menu a complete readout rather than a summary: whichever one
-// the operator put in the icon, the rest are one right-click away.
+// statusRow is the second line of the header: what the pool is holding, or the one
+// sentence that says why there is nothing to hold.
+func (a *App) statusRow(snap status.Snapshot, paused bool, cfg config.Config, th theme.Theme, lang string) traymenu.Item {
+	dot := colorOf(th, healthOf(snap, paused))
+	switch {
+	case errors.Is(snap.Err, panel.ErrUnauthorized):
+		// A rejected key is not an unreachable gateway, and saying it was would
+		// send an operator to look at the wrong thing: the gateway is answering,
+		// it simply will not answer this caller.
+		return traymenu.Status(i18n.T(lang, "status.unauthorized"), "", dot, false)
+	case !snap.Reachable:
+		text := i18n.T(lang, "status.unreachable", hostOf(cfg.BaseURL))
+		if paused {
+			text = i18n.T(lang, "health.paused")
+		}
+		return traymenu.Status(text, "", dot, false)
+	case snap.Total == 0:
+		return traymenu.Status(i18n.T(lang, "menu.accounts"), i18n.T(lang, "status.no_accounts"), dot, false)
+	default:
+		// Ready over total, then the credits behind them: the pair that answers
+		// "can this thing serve a request", and the figure that answers "for how
+		// much longer".
+		return traymenu.Status(
+			i18n.T(lang, "menu.accounts"),
+			fmt.Sprintf("%d/%d · %s", snap.Ready(), snap.Total, i18n.Num(snap.CreditTotal())),
+			dot, false)
+	}
+}
+
+// copyItems is the clipboard submenu.
+//
+// Both rows copy a value an operator otherwise has to go and find: the gateway
+// address lives in a configuration file, and the api key lives in the gateway's own
+// config.json. The key is never drawn into the menu — a screenshot of an open menu
+// should not be a credential — so that row is a verb and the balloon is the only
+// confirmation.
+func (a *App) copyItems(lang string) traymenu.Item {
+	addr := traymenu.Command(IDCopyURL, i18n.T(lang, "copy.addr"))
+	addr.Value = hostOf(a.BaseURL())
+
+	key := traymenu.Command(IDCopyKey, i18n.T(lang, "copy.key"))
+	if a.PanelClient().Key() == "" {
+		// Nothing to copy, and saying so is more useful than a row that reports
+		// success at copying an empty string.
+		key.Disabled = true
+		key.Value = i18n.T(lang, "copy.none")
+	}
+
+	return traymenu.Submenu(i18n.T(lang, "menu.copy"), []traymenu.Item{addr, key})
+}
+
+// trayItems is everything about how the tray itself looks and behaves.
+func (a *App) trayItems(cfg config.Config, th theme.Theme, lang string) traymenu.Item {
+	children := []traymenu.Item{
+		traymenu.Submenu(i18n.T(lang, "menu.style"), a.styleItems(cfg, th, lang)),
+		traymenu.Submenu(i18n.T(lang, "menu.metric"), metricItems(cfg, lang)),
+		traymenu.Submenu(i18n.T(lang, "menu.theme"), themeItems(a, cfg, lang)),
+		traymenu.Submenu(i18n.T(lang, "menu.language"), []traymenu.Item{
+			// The two names are the language's own, which is the one place a
+			// translated label would be useless: a reader who cannot read the
+			// current language is looking for their own.
+			traymenu.Radio(IDLangBase, "中文", cfg.Lang == "zh"),
+			traymenu.Radio(IDLangBase+1, "EN", cfg.Lang == "en"),
+		}),
+		traymenu.Separator(),
+		traymenu.Command(IDOpenConfig, i18n.T(lang, "menu.file")),
+		traymenu.Command(IDOpenFolder, i18n.T(lang, "menu.dir")),
+		traymenu.Command(IDReload, i18n.T(lang, "menu.reload")),
+	}
+	return traymenu.Submenu(i18n.T(lang, "menu.tray"), children)
+}
+
+// moreItems is everything that is a readout or a one-shot action.
+//
+// These are the rows that used to fill the top level. None of them is gone; they are
+// one submenu down, where they can be as detailed as they are useful without pushing
+// the rows an operator reaches for off the screen.
+func (a *App) moreItems(snap status.Snapshot, paused bool, cfg config.Config, lang string) traymenu.Item {
+	children := []traymenu.Item{
+		a.accountItems(snap, lang),
+		traymenu.Submenu(i18n.T(lang, "menu.data"), a.liveItems(snap, paused, cfg)),
+		a.updateItems(lang),
+		a.taskItems(lang),
+		traymenu.Separator(),
+		traymenu.Command(IDChartWindow, i18n.T(lang, "menu.chart")),
+		traymenu.Command(IDRefresh, i18n.T(lang, "menu.refresh")),
+	}
+	if paused {
+		children = append(children, traymenu.Command(IDPause, i18n.T(lang, "menu.resume")))
+	} else {
+		children = append(children, traymenu.Command(IDPause, i18n.T(lang, "menu.pause")))
+	}
+	children = append(children,
+		traymenu.Separator(),
+		traymenu.Command(IDAbout, i18n.T(lang, "menu.about")),
+	)
+	return traymenu.Submenu(i18n.T(lang, "menu.more"), children)
+}
+
+// liveItems is the block of current numbers. Each row is one metric, which is what
+// makes the menu a complete readout rather than a summary: whichever one the
+// operator put in the icon, the rest are one right-click away.
 func (a *App) liveItems(snap status.Snapshot, paused bool, cfg config.Config) []traymenu.Item {
 	lang := cfg.Lang
+	if errors.Is(snap.Err, panel.ErrUnauthorized) {
+		return []traymenu.Item{traymenu.Value("", i18n.T(lang, "status.unauthorized"))}
+	}
 	if !snap.Reachable {
-		// One full-width sentence rather than a label and a value: the message
-		// is the whole row's content, and squeezing it into a value column would
-		// clip exactly the part that says which address failed.
+		// One full-width sentence rather than a label and a value: the message is
+		// the whole row's content, and squeezing it into a value column would clip
+		// exactly the part that says which address failed.
 		text := i18n.T(lang, "status.unreachable", hostOf(cfg.BaseURL))
 		if paused {
 			text = i18n.T(lang, "health.paused")
@@ -119,8 +200,8 @@ func (a *App) liveItems(snap status.Snapshot, paused bool, cfg config.Config) []
 		traymenu.Value(i18n.T(lang, "metric.accounts"), fmt.Sprintf("%d/%d", snap.Ready(), snap.Total)),
 		traymenu.Value(i18n.T(lang, "metric.credits"), i18n.Num(snap.CreditTotal())),
 	}
-	// The window is the same one the chart uses, so the figures here and the
-	// curve there describe the same period.
+	// The window is the same one the chart uses, so the figures here and the curve
+	// there describe the same period.
 	if snap.UsageHours > 0 {
 		items = append(items, traymenu.Value(
 			fmt.Sprintf("%s · %dh", i18n.T(lang, "metric.requests"), snap.UsageHours),
@@ -139,17 +220,11 @@ func (a *App) liveItems(snap status.Snapshot, paused bool, cfg config.Config) []
 	if snap.Disabled() > 0 {
 		items = append(items, traymenu.Value(i18n.T(lang, "menu.disabled"), i18n.T(lang, "menu.disabled_count", snap.Disabled())))
 	}
-	// The log row counts what matters rather than reciting all three totals: the
-	// trimmed row carries the two figures an operator reacts to, and the full
-	// sentence would not fit beside its own label.
 	if snap.LogTotal > 0 {
 		items = append(items, traymenu.Value(i18n.T(lang, "menu.logs"),
 			i18n.T(lang, "menu.logs_value", snap.LogTotal, snap.LogErrors)))
 	}
 	if snap.Version != "" {
-		// The version row shows the version. Its uptime went with it: the two
-		// together overflow the value column and the uptime is already in the
-		// tooltip, where there is room for it.
 		items = append(items, traymenu.Value(i18n.T(lang, "menu.version"), snap.Version))
 	}
 	return items
@@ -175,7 +250,11 @@ func (a *App) accountItems(snap status.Snapshot, lang string) traymenu.Item {
 		case acct.Disabled:
 			value = i18n.T(lang, "menu.disabled_one")
 		case acct.Cooling:
-			value = fmt.Sprintf("%s · %s", value, i18n.Duration(acct.CoolRemain))
+			// The remaining time is worked out from the wall clock the gateway
+			// reports, because it does not report a duration.
+			if left := acct.CoolRemaining(); left > 0 {
+				value = fmt.Sprintf("%s · %s", value, i18n.Duration(int64(left.Seconds())))
+			}
 		case acct.InFlight > 0:
 			value = fmt.Sprintf("%s · %s", value, i18n.T(lang, "menu.inflight_short", acct.InFlight))
 		}
@@ -190,13 +269,13 @@ func (a *App) accountItems(snap status.Snapshot, lang string) traymenu.Item {
 	if len(children) == 0 {
 		children = append(children, traymenu.Value(i18n.T(lang, "status.no_accounts"), ""))
 	}
-	return traymenu.Submenu(
-		fmt.Sprintf("%s · %d/%d", i18n.T(lang, "menu.accounts"), snap.Ready(), snap.Total),
-		children)
+	row := traymenu.Submenu(i18n.T(lang, "menu.accounts"), children)
+	row.Value = fmt.Sprintf("%d/%d", snap.Ready(), snap.Total)
+	return row
 }
 
-// accountColor is the pip beside an account row: green when it can serve,
-// amber when it is cooling, blue when it is busy, grey when it is out of play.
+// accountColor is the pip beside an account row: green when it can serve, amber
+// when it is cooling, blue when it is busy, grey when it is out of play.
 func accountColor(acct status.Account) raster.RGBA {
 	switch {
 	case acct.Disabled:
@@ -213,9 +292,9 @@ func accountColor(acct status.Account) raster.RGBA {
 // styleItems is the gallery: one row per style, each carrying a rendering of the
 // icon it would produce at the current metric, theme and numbers.
 func (a *App) styleItems(cfg config.Config, th theme.Theme, lang string) []traymenu.Item {
-	// Every style is offered on every palette. The two palettes differ in ink,
-	// not in what they can draw, and a gallery with holes in it is a puzzle
-	// rather than a choice.
+	// Every style is offered on every palette. The two palettes differ in ink, not
+	// in what they can draw, and a gallery with holes in it is a puzzle rather than
+	// a choice.
 	out := make([]traymenu.Item, 0, len(config.Styles))
 	for _, name := range config.Styles {
 		idx := indexOf(config.Styles, name)
@@ -273,8 +352,8 @@ func metricItems(cfg config.Config, lang string) []traymenu.Item {
 	return out
 }
 
-// gatewayItems is the process block: what is running, and the three things that
-// can be done about it.
+// gatewayItems is the process block: what is running, and the things that can be
+// done about it.
 func (a *App) gatewayItems(snap status.Snapshot, cfg config.Config, lang string, th theme.Theme) traymenu.Item {
 	pid := snap.Process
 	children := []traymenu.Item{}
@@ -308,13 +387,14 @@ func (a *App) gatewayItems(snap status.Snapshot, cfg config.Config, lang string,
 	}
 	children = append(children,
 		traymenu.Separator(),
-		traymenu.Check(IDGatewayAutoStart, i18n.T(lang, "menu.gw_autostart"), a.gateway.AutoStartEnabled()),
-		traymenu.Command(IDOpenGatewayDir, i18n.T(lang, "menu.open_gateway_dir")),
+		traymenu.Check(IDGatewayAutoStart, i18n.T(lang, "menu.autostart"), a.gateway.AutoStartEnabled()),
+		traymenu.Command(IDOpenGatewayDir, i18n.T(lang, "menu.dir")),
+		traymenu.Command(IDOpenGatewayConfig, i18n.T(lang, "menu.file")),
 	)
 
 	// The block's own label carries the state, and the row's value column carries
 	// the identifier, so neither has to repeat the other. Spelling the state out
-	// inside the label as well produced a row too long to read and left the PID,
+	// inside the label as well produced a row too long to read and left the pid,
 	// which is what an operator actually wants, cut off at the edge.
 	state := i18n.T(lang, "status.offline")
 	value := ""
@@ -323,8 +403,6 @@ func (a *App) gatewayItems(snap status.Snapshot, cfg config.Config, lang string,
 		value = fmt.Sprintf("PID %d", pid.PID)
 	}
 	if a.NeedsLogin() {
-		// The block's label says what the operator has to act on, which for a
-		// gateway with no accounts is not the pid but the missing login.
 		value = i18n.T(lang, "gw.no_accounts_short")
 	}
 	health := status.HealthDown
@@ -350,13 +428,12 @@ func consoleLabel(a *App, lang string) string {
 	return i18n.T(lang, "gw.console_show")
 }
 
-// taskItems is the gateway's maintenance block.
 // updateItems is the version block: what is installed, what is available, and the
 // one action that resolves the difference.
 //
 // The rows are built from the last check rather than from a fresh one, so opening
-// the menu never waits on the network. A check that has not run yet says so, and
-// the row that re-runs it sits right there.
+// the menu never waits on the network. A check that has not run yet says so, and the
+// row that re-runs it sits right there.
 func (a *App) updateItems(lang string) traymenu.Item {
 	u := a.Updates()
 	installedGW := a.GatewayVersion()
@@ -364,8 +441,8 @@ func (a *App) updateItems(lang string) traymenu.Item {
 
 	children := []traymenu.Item{}
 
-	// The gateway's row: an action when there is something to do, a statement
-	// when there is not.
+	// The gateway's row: an action when there is something to do, a statement when
+	// there is not.
 	switch {
 	case u.Checked.IsZero():
 		children = append(children, traymenu.Value(i18n.T(lang, "menu.gateway_version"),
@@ -393,13 +470,16 @@ func (a *App) updateItems(lang string) traymenu.Item {
 		traymenu.Command(IDCheckUpdates, i18n.T(lang, "menu.updates")),
 	)
 
-	// An unreachable check is stated in the row rather than hidden: an operator
-	// who wonders why no update is offered deserves to know the check failed.
-	label := i18n.T(lang, "menu.version_block")
+	// An unreachable check is stated in the row rather than hidden: an operator who
+	// wonders why no update is offered deserves to know the check failed.
+	// A failed check is stated in the value column rather than in the label: the
+	// label stays two characters, and the failure is still visible without opening
+	// the block.
+	row := traymenu.Submenu(i18n.T(lang, "menu.version_block"), children)
 	if u.Err != nil {
-		label = i18n.T(lang, "menu.version_block_failed")
+		row.Value = i18n.T(lang, "menu.check_failed")
 	}
-	return traymenu.Submenu(label, children)
+	return row
 }
 
 // taskItems is the gateway's maintenance block.

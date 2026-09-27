@@ -9,6 +9,7 @@
 package winapi
 
 import (
+	"fmt"
 	"syscall"
 	"unsafe"
 )
@@ -65,32 +66,62 @@ var (
 
 	ProcShellNotifyIconW = shell32.NewProc("Shell_NotifyIconW")
 
+	// The clipboard, bound directly.
+	//
+	// The obvious implementation is `cmd /c clip` with the text on its standard
+	// input, and it is the wrong one for a program that has no console: it starts
+	// a console host for every copy, and it resolves `clip` through the current
+	// directory before the system one, so a file of that name beside the tray is
+	// executed instead. These four calls have neither problem.
+	ProcOpenClipboard    = user32.NewProc("OpenClipboard")
+	ProcCloseClipboard   = user32.NewProc("CloseClipboard")
+	ProcEmptyClipboard   = user32.NewProc("EmptyClipboard")
+	ProcSetClipboardData = user32.NewProc("SetClipboardData")
+	ProcGlobalAlloc      = kernel32.NewProc("GlobalAlloc")
+	ProcGlobalLock       = kernel32.NewProc("GlobalLock")
+	ProcGlobalUnlock     = kernel32.NewProc("GlobalUnlock")
+	ProcRtlMoveMemory    = kernel32.NewProc("RtlMoveMemory")
+
 	User32DLL = user32
 	GDI32DLL  = gdi32
 
 	procGetDC     = user32.NewProc("GetDC")
 	procReleaseDC = user32.NewProc("ReleaseDC")
 
-	ProcCreateDIBSection = gdi32.NewProc("CreateDIBSection")
-	ProcDeleteObject     = gdi32.NewProc("DeleteObject")
-	ProcCreateCompatibleDC = gdi32.NewProc("CreateCompatibleDC")
-	ProcDeleteDC           = gdi32.NewProc("DeleteDC")
-	ProcSelectObject       = gdi32.NewProc("SelectObject")
+	ProcCreateDIBSection    = gdi32.NewProc("CreateDIBSection")
+	ProcDeleteObject        = gdi32.NewProc("DeleteObject")
+	ProcCreateCompatibleDC  = gdi32.NewProc("CreateCompatibleDC")
+	ProcDeleteDC            = gdi32.NewProc("DeleteDC")
+	ProcSelectObject        = gdi32.NewProc("SelectObject")
 	ProcCreateFontIndirectW = gdi32.NewProc("CreateFontIndirectW")
-	ProcSetTextColor       = gdi32.NewProc("SetTextColor")
-	ProcSetBkMode          = gdi32.NewProc("SetBkMode")
-	ProcCreateSolidBrush   = gdi32.NewProc("CreateSolidBrush")
-	ProcGetDeviceCaps      = gdi32.NewProc("GetDeviceCaps")
+	ProcSetTextColor        = gdi32.NewProc("SetTextColor")
+	ProcSetBkMode           = gdi32.NewProc("SetBkMode")
+	ProcCreateSolidBrush    = gdi32.NewProc("CreateSolidBrush")
+	ProcGetDeviceCaps       = gdi32.NewProc("GetDeviceCaps")
 
 	// The tray deliberately renders its own glyphs, but GDI still draws the
 	// flyout's text: DirectWrite through COM would be a large amount of code for
 	// one label per row, and the bitmap font is only legible at icon sizes.
-	ProcTextOutW   = gdi32.NewProc("TextOutW")
-	ProcBitBlt           = gdi32.NewProc("BitBlt")
-	ProcGetDC            = user32.NewProc("GetDC")
-	ProcReleaseDC        = user32.NewProc("ReleaseDC")
-)
+	ProcTextOutW  = gdi32.NewProc("TextOutW")
+	ProcBitBlt    = gdi32.NewProc("BitBlt")
+	ProcGetDC     = user32.NewProc("GetDC")
+	ProcReleaseDC = user32.NewProc("ReleaseDC")
 
+	// The four calls an owner-drawn menu row needs beyond what is above: the
+	// system palette, the font metrics of the DC the shell hands over, and the two
+	// primitives that draw a pip.
+	ProcGetSysColor           = user32.NewProc("GetSysColor")
+	ProcGetTextMetricsW       = gdi32.NewProc("GetTextMetricsW")
+	ProcGetTextExtentPoint32W = gdi32.NewProc("GetTextExtentPoint32W")
+	ProcEllipse               = gdi32.NewProc("Ellipse")
+	ProcCreatePen             = gdi32.NewProc("CreatePen")
+	ProcGetStockObject        = gdi32.NewProc("GetStockObject")
+
+	// The read side of the clipboard, used by the tests to check what a second
+	// program would see.
+	procIsClipboardFormatAvailable = user32.NewProc("IsClipboardFormatAvailable")
+	procGetClipboardData           = user32.NewProc("GetClipboardData")
+)
 
 // DwmAPI is loaded lazily like the rest: it is only for the flyout window's
 // rounded corners, and a system without it simply gets square ones.
@@ -155,11 +186,11 @@ type TrackMouseEventStruct struct {
 
 // System metrics and shell constants used across the tray.
 const (
-	SmCXSmallIcon   = 49
-	SmCYScreen      = 1
-	SmCXScreen      = 0
-	SmCXSmIcon      = 49
-	SmCYSmIcon      = 50
+	SmCXSmallIcon           = 49
+	SmCYScreen              = 1
+	SmCXScreen              = 0
+	SmCXSmIcon              = 49
+	SmCYSmIcon              = 50
 	MonitorDefaultToNearest = 2
 )
 
@@ -228,6 +259,54 @@ func CopyUTF16(dst []uint16, s string) {
 
 // LowWord extracts the low 16 bits of a message parameter (menu / item ids).
 func LowWord(v uintptr) uint32 { return uint32(v & 0xffff) }
+
+// CFUnicodeText is the clipboard format for a UTF-16 string.
+const CFUnicodeText = 13
+
+// gmemMoveable is GMEM_MOVEABLE, which is mandatory for clipboard memory: the
+// clipboard manager has to be able to move it.
+const gmemMoveable = 0x0002
+
+// SetClipboardText puts a string on the clipboard as UTF-16 text.
+//
+// The memory handed to SetClipboardData belongs to the system from that moment
+// on, so it is deliberately not freed: releasing it would leave every paste in
+// every program pointing at freed memory. The failure paths do free it, because
+// nothing has taken ownership yet.
+func SetClipboardText(s string) error {
+	if s == "" {
+		return fmt.Errorf("nothing to copy")
+	}
+	// The source is a UTF-16 slice, so the copy carries the terminating NUL that
+	// every clipboard reader expects to find.
+	utf16 := syscall.StringToUTF16(s)
+	n := len(utf16) * 2
+
+	h, _, err := ProcGlobalAlloc.Call(gmemMoveable, uintptr(n))
+	if h == 0 {
+		return fmt.Errorf("GlobalAlloc: %v", err)
+	}
+	ptr, _, _ := ProcGlobalLock.Call(h)
+	if ptr == 0 {
+		return fmt.Errorf("GlobalLock failed")
+	}
+	// RtlMoveMemory copies between two raw addresses, which is the one form of
+	// this that does not turn a uintptr back into a pointer: the source is passed
+	// as an address and the destination is the handle's own address, so neither
+	// conversion outlives the call.
+	ProcRtlMoveMemory.Call(ptr, uintptr(unsafe.Pointer(&utf16[0])), uintptr(n))
+	ProcGlobalUnlock.Call(h)
+
+	if ret, _, err := ProcOpenClipboard.Call(0); ret == 0 {
+		return fmt.Errorf("OpenClipboard: %v", err)
+	}
+	defer ProcCloseClipboard.Call()
+	ProcEmptyClipboard.Call()
+	if ret, _, err := ProcSetClipboardData.Call(CFUnicodeText, h); ret == 0 {
+		return fmt.Errorf("SetClipboardData: %v", err)
+	}
+	return nil
+}
 
 // DIBHeader mirrors BITMAPV5HEADER far enough to ask for a 32-bit top-down DIB
 // with an alpha channel. Declaring the masks is what makes the shell honour

@@ -14,13 +14,13 @@ import (
 	"wbtray/internal/app"
 	"wbtray/internal/autostart"
 	"wbtray/internal/config"
-	"wbtray/internal/iconstyle"
 	"wbtray/internal/i18n"
+	"wbtray/internal/iconstyle"
 	"wbtray/internal/install"
 	"wbtray/internal/raster"
 	"wbtray/internal/theme"
-	"wbtray/internal/traymenu"
 	"wbtray/internal/tray"
+	"wbtray/internal/traymenu"
 	"wbtray/internal/winapi"
 )
 
@@ -50,13 +50,15 @@ func run(cfg config.Config, cfgPath string) error {
 	stop := make(chan struct{})
 	var once sync.Once
 	a.SetCallbacks(app.Options{
-		Notify:       func(title, text string, level int) { icon.Notify(title, text, level) },
-		OpenURL:      openURL,
-		OpenPath:     openPath,
-		RefreshIcon:  func() { icon.SetIcon(renderIcon(a)) },
-		SetMenuStyle: func(native bool) { icon.SetMenuStyle(menuStyle(native)) },
-		SystemDark:   winapi.SystemDark,
-		Quit:         func() { once.Do(func() { close(stop) }); icon.Quit() },
+		Notify:      func(title, text string, level int) { icon.Notify(title, text, level) },
+		OpenURL:     openURL,
+		OpenPath:    openPath,
+		RefreshIcon: func() { icon.SetIcon(renderIcon(a)) },
+		RecordGatewayVersion: func(v string) {
+			_ = lc.layout.RecordGatewayVersion(v)
+		},
+		SystemDark: winapi.SystemDark,
+		Quit:       func() { once.Do(func() { close(stop) }); icon.Quit() },
 	})
 	icon.SetCallbacks(tray.Callbacks{
 		Menu:        func() []traymenu.Item { return a.Menu() },
@@ -66,8 +68,8 @@ func run(cfg config.Config, cfgPath string) error {
 		// The tray's own timer runs every second and only re-reads the tooltip.
 		// Polling the gateway from here as well would ignore the configured
 		// interval entirely and query the panel once a second.
-		Tick: func() { icon.SetTooltip(a.Tooltip()) },
-		IconView:    func(size int) *raster.Canvas { return renderIconSized(a, size) },
+		Tick:     func() { icon.SetTooltip(a.Tooltip()) },
+		IconView: func(size int) *raster.Canvas { return renderIconSized(a, size) },
 		StylePreview: func(index, size int) *raster.Canvas {
 			if index < 0 || index >= len(config.Styles) {
 				return nil
@@ -83,23 +85,6 @@ func run(cfg config.Config, cfgPath string) error {
 			})
 		},
 	})
-	tray.SetThemeProvider(func() (theme.Theme, tray.MenuStyle) {
-		cfg := a.Config()
-		style := tray.MenuFlyout
-		if cfg.MenuStyle == "native" {
-			style = tray.MenuNative
-		}
-		return a.Theme(), style
-	})
-	tray.SetHoverCallback(func(item traymenu.Item) {
-		if item.Kind == traymenu.StyleRow {
-			name := styleNameForID(item.ID)
-			a.PreviewStyle(name)
-			return
-		}
-		a.PreviewStyle("")
-	})
-
 	go startTicker(a, stop)
 	go startVersionChecks(a, stop)
 	// The first reading is taken immediately rather than after one interval, so
@@ -115,14 +100,6 @@ func run(cfg config.Config, cfgPath string) error {
 	err := icon.Run()
 	once.Do(func() { close(stop) })
 	return err
-}
-
-// menuStyle converts the application's boolean into the front end's enum.
-func menuStyle(native bool) tray.MenuStyle {
-	if native {
-		return tray.MenuNative
-	}
-	return tray.MenuFlyout
 }
 
 // startTicker refreshes on the configured interval.
@@ -200,7 +177,15 @@ func handleCommand(a *app.App, lc *lifecycle, ev traymenu.Event) {
 		_ = openURL(a.PanelClient().PanelURL())
 		return
 	case ev.ID == app.IDCopyURL:
-		_ = copyToClipboard(a.PanelClient().Base())
+		copyAndSay(a, i18n.T(a.Lang(), "copy.addr"), a.PanelClient().Base())
+		return
+	case ev.ID == app.IDCopyKey:
+		key := a.PanelClient().Key()
+		if key == "" {
+			a.Notify(i18n.T(a.Lang(), "copy.key"), i18n.T(a.Lang(), "copy.none"), 1)
+			return
+		}
+		copyAndSay(a, i18n.T(a.Lang(), "copy.key"), key)
 		return
 	case ev.ID == app.IDOpenConfig:
 		_ = openPath(a.ConfigPath())
@@ -242,9 +227,6 @@ func handleCommand(a *app.App, lc *lifecycle, ev traymenu.Event) {
 	case ev.ID == app.IDPause:
 		a.SetPaused(!a.Paused())
 		a.Notify("wbtray", a.Tooltip(), 0)
-		return
-	case ev.ID == app.IDClassicMenu:
-		a.SetMenuStyle(!(a.Config().MenuStyle == "native"))
 		return
 	case ev.ID >= app.IDAppearanceBase && ev.ID < app.IDAppearanceBase+8:
 		if i := int(ev.ID - app.IDAppearanceBase); i < len(theme.Appearances) {
@@ -388,15 +370,28 @@ func shellOpen(target, dir string) error {
 	return cmd.Start()
 }
 
-// copyToClipboard puts a string on the clipboard through the shell, which is a
-// one-line call compared with the window-based API.
+// copyToClipboard puts a string on the clipboard.
+//
+// It goes through the clipboard API rather than `cmd /c clip`, which is the
+// obvious implementation and the wrong one for a program with no console: it
+// starts a console host on every copy, and it resolves `clip` through the current
+// directory before the system one, so a file of that name beside the tray would be
+// run instead.
 func copyToClipboard(s string) error {
-	cmd := exec.Command("cmd", "/c", "clip")
-	cmd.Stdin = stringsReader(s)
-	if err := cmd.Run(); err != nil {
-		return err
+	return winapi.SetClipboardText(s)
+}
+
+// copyAndSay copies a value and reports the outcome, without printing the value.
+//
+// The balloon names what was copied rather than echoing it: the whole reason the
+// api key is a menu verb instead of a menu label is that an open menu, and the
+// toast confirming it, are both things that end up in screenshots.
+func copyAndSay(a *app.App, what, value string) {
+	if err := copyToClipboard(value); err != nil {
+		a.Notify(what, i18n.T(a.Lang(), "task.failed", err), 2)
+		return
 	}
-	return nil
+	a.Notify(what, i18n.T(a.Lang(), "copy.done", what), 0)
 }
 
 func init() {

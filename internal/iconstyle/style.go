@@ -421,8 +421,8 @@ func DrawMascot(c *raster.Canvas, v View, accent raster.RGBA) {
 	// still stops short of the halo's rim, so the shadow reads as behind it.
 	glyph := box * 0.84
 	cat.Draw(c, box/2-glyph/2, box/2-glyph/2+box*0.01, glyph, glyph, cat.Palette{
-		Fur:      accent,
-		Inner:    inner,
+		Fur:   accent,
+		Inner: inner,
 		// The cheeks are shading rather than a colour: the coat mixed toward the
 		// palette's own dim ink. A fixed pink — which the first version used —
 		// put a pair of red spots on the monochrome cat, and on a status icon a

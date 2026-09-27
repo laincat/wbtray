@@ -14,9 +14,9 @@ import (
 
 // Process is the gateway as far as the tray can see it.
 type Process struct {
-	Exe    string
-	PID    uint32
-	Found  bool
+	Exe   string
+	PID   uint32
+	Found bool
 	// Started is true only when this tray process launched it, which is what
 	// decides whether stopping it is the tray's business.
 	Started bool
@@ -26,8 +26,7 @@ type Process struct {
 
 const (
 	createNewProcessGroup = 0x00000200
-	detachedProcess       = 0x00000008
-	createNoWindow        = 0x08000000
+	createNewConsole      = 0x00000010
 )
 
 // FindRunning looks for a gateway process that is already running, wherever it
@@ -83,35 +82,41 @@ func Alive(pid uint32) bool {
 
 // Start launches the gateway from the given executable.
 //
-// showConsole decides whether a console window appears. A gateway started by a
-// double click shows one, because that is where its log goes; started by the
-// tray it can be hidden, since the tray reads the same log over HTTP.
+// The console is always allocated, and merely hidden when one is not wanted. That
+// is deliberate, and it is a change from starting the gateway with no console at
+// all: a process created with CREATE_NO_WINDOW has no console to show, so "show the
+// console" could never work on a gateway the tray had started — the process was
+// already running and a console cannot be attached to it after the fact. Allocating
+// one and hiding it costs nothing visible and makes the switch work in both
+// directions.
 //
-// extra carries any further arguments, which the tray does not use but a
-// deployment that starts the gateway with its own flags does.
+// showConsole decides whether it appears. A gateway started by a double click shows
+// one, because that is where its log goes; started by the tray it starts hidden,
+// since the tray reads the same log over HTTP.
+//
+// extra carries any further arguments, which the tray does not use but a deployment
+// that starts the gateway with its own flags does.
 func Start(exe, port string, showConsole bool, extra ...string) (Process, error) {
 	if exe == "" {
 		return Process{}, fmt.Errorf("gateway executable not found")
 	}
-	// The gateway takes no listen flag; it reads WB2A_LISTEN from the
-	// environment before its own configuration file, which is the documented way
-	// for a host to say where it should bind. Passing the port this way keeps the
-	// tray's base URL and the gateway's listener in step without editing the
-	// operator's config.json.
+	// The gateway takes no listen flag; it reads WB2A_LISTEN from the environment
+	// before its own configuration file, which is the documented way for a host to
+	// say where it should bind. Passing the port this way keeps the tray's base URL
+	// and the gateway's listener in step without editing the operator's config.json.
 	cmd := exec.Command(exe, extra...)
 	cmd.Dir = WorkDir(exe)
 	if port != "" {
 		cmd.Env = append(os.Environ(), "WB2A_LISTEN=:"+port)
 	}
-	if showConsole {
-		// A visible console needs a new process group, or the child would share
-		// the tray's own (invisible) console and show nothing.
-		cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: createNewProcessGroup}
-	} else {
-		cmd.SysProcAttr = &syscall.SysProcAttr{
-			CreationFlags: createNoWindow | detachedProcess,
-			HideWindow:    true,
-		}
+	// CREATE_NEW_CONSOLE in both cases: without it a console program started by a
+	// program that has no console of its own gets a console by accident, and with
+	// the flag it gets one on purpose.
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		CreationFlags: createNewProcessGroup | createNewConsole,
+		// SW_HIDE. The console exists and does not appear, which is the state the
+		// show/hide switch then takes over from.
+		HideWindow: !showConsole,
 	}
 	if err := cmd.Start(); err != nil {
 		return Process{}, err

@@ -1,42 +1,52 @@
 package traymenu
 
-import "testing"
+import (
+	"testing"
 
-func TestFindSearchesSubmenus(t *testing.T) {
-	items := []Item{
-		Command(1, "one"),
-		Submenu("more", []Item{Command(2, "two"), Command(3, "three")}),
+	"wbtray/internal/raster"
+)
+
+// TestStatusKeepsItsOwnDrawing pins the reason the status rows are painted by the
+// front end: the system dims a row that cannot be clicked, and it dims the row's
+// icon with it, so a health colour drawn as a bitmap comes out grey exactly where
+// it carries the most meaning.
+func TestStatusKeepsItsOwnDrawing(t *testing.T) {
+	row := Status("wbtray", "127.0.0.1:7863", raster.Hex("#3ddc97"), true)
+	if !row.OwnerDraw {
+		t.Error("a status row is not a row the front end paints")
 	}
-	for id, want := range map[uint32]string{1: "one", 2: "two", 3: "three"} {
-		got, ok := Find(items, id)
-		if !ok {
-			t.Fatalf("id %d not found", id)
-		}
-		if got.Text != want {
-			t.Errorf("id %d = %q, want %q", id, got.Text, want)
-		}
+	if !row.Disabled {
+		t.Error("a status row should not be clickable")
 	}
-	if _, ok := Find(items, 99); ok {
-		t.Error("found an id that is not in the menu")
+	if row.Kind != ValueRow {
+		t.Errorf("a status row is kind %v, want ValueRow", row.Kind)
+	}
+	if row.Dot.A == 0 {
+		t.Error("a status row carries no colour")
 	}
 }
 
-func TestCountRowsIncludesChildren(t *testing.T) {
-	items := []Item{
-		Command(1, "one"),
-		Submenu("more", []Item{Command(2, "two"), Separator(), Command(3, "three")}),
+// TestValueStaysSystemDrawn is the other half: everything that is not a status row
+// should be drawn by the shell, because a row drawn by hand is a row that ages
+// differently from the rest of the menu.
+func TestValueStaysSystemDrawn(t *testing.T) {
+	if row := Value("Credits", "48,250"); row.OwnerDraw {
+		t.Error("an ordinary value row should be drawn by the system")
 	}
-	if got := CountRows(items); got != 5 {
-		t.Fatalf("CountRows = %d, want 5", got)
+	if row := Command(1, "Panel"); row.OwnerDraw {
+		t.Error("a command row should be drawn by the system")
 	}
 }
 
-func TestExpandedRoundTrips(t *testing.T) {
-	row := Submenu("more", nil)
-	if row.IsExpanded() {
-		t.Fatal("a new submenu row should be collapsed")
+// TestSubmenuCarriesItsValue checks that a submenu row can show a figure, which is
+// how the gateway row carries its pid.
+func TestSubmenuCarriesItsValue(t *testing.T) {
+	row := Submenu("Gateway", []Item{Command(1, "Start")})
+	row.Value = "PID 16780"
+	if row.Kind != SubmenuRow {
+		t.Fatalf("the row is kind %v, want SubmenuRow", row.Kind)
 	}
-	if !row.Expanded(true).IsExpanded() {
-		t.Fatal("Expanded(true) did not stick")
+	if row.Value == "" {
+		t.Error("the submenu row lost its value")
 	}
 }

@@ -32,8 +32,6 @@ const (
 	IDReload = 2604
 	// IDAbout shows the about box.
 	IDAbout = 2605
-	// IDClassicMenu switches to the system menu.
-	IDClassicMenu = 2606
 	// IDRefresh prompts an immediate refresh.
 	IDRefresh = 2607
 	// IDPause toggles refreshing.
@@ -60,13 +58,15 @@ const (
 	IDLogin = 2618
 	// IDOpenGatewayConfig opens the gateway's own config.json.
 	IDOpenGatewayConfig = 2619
+	// IDCopyKey copies the gateway API key to the clipboard.
+	IDCopyKey = 2620
 
 	// Gateway process commands.
-	IDGatewayStart      = 2700
-	IDGatewayStop       = 2701
-	IDGatewayRestart    = 2702
-	IDConsoleToggle     = 2703
-	IDGatewayAutoStart  = 2704
+	IDGatewayStart     = 2700
+	IDGatewayStop      = 2701
+	IDGatewayRestart   = 2702
+	IDConsoleToggle    = 2703
+	IDGatewayAutoStart = 2704
 )
 
 // Task is one of the gateway's one-shot maintenance actions.

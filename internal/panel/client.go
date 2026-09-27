@@ -252,10 +252,10 @@ func (b *usageBody) decode(data []byte) error {
 			AvgTPS        float64 `json:"avg_tokens_per_second"`
 		} `json:"totals"`
 		Series []struct {
-			T    string `json:"t"`
-			Req  int64  `json:"requests"`
-			Tok  int64  `json:"total_tokens"`
-			Lat  float64 `json:"avg_latency_ms"`
+			T   string  `json:"t"`
+			Req int64   `json:"requests"`
+			Tok int64   `json:"total_tokens"`
+			Lat float64 `json:"avg_latency_ms"`
 		} `json:"series"`
 	}
 	if err := json.Unmarshal(data, &v); err != nil {

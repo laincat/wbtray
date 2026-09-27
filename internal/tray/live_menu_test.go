@@ -3,202 +3,258 @@
 package tray
 
 import (
-	"context"
-	"image/png"
-	"os"
 	"strings"
 	"testing"
 
 	"wbtray/internal/app"
 	"wbtray/internal/config"
-	"wbtray/internal/raster"
+	"wbtray/internal/i18n"
 	"wbtray/internal/status"
-	"wbtray/internal/theme"
 	"wbtray/internal/traymenu"
 )
 
-// stubGateway is the process controller the application talks to, with no
-// process behind it.
+// stubGateway is the process controller the application talks to, with no process
+// behind it.
 type stubGateway struct {
 	pid       status.PIDInfo
 	autoStart bool
 	console   bool
 }
 
-func (s *stubGateway) PID() status.PIDInfo          { return s.pid }
+func (s *stubGateway) PID() status.PIDInfo { return s.pid }
 func (s *stubGateway) AdoptProcess(pid uint32, exe string) {
 	s.pid = status.PIDInfo{Found: true, PID: pid, Exe: exe}
 }
-func (s *stubGateway) Start() (uint32, error)       { s.pid = status.PIDInfo{Found: true, PID: 4242}; return 4242, nil }
-func (s *stubGateway) Stop() error                  { s.pid = status.PIDInfo{}; return nil }
-func (s *stubGateway) Restart() (uint32, error)     { return s.Start() }
-func (s *stubGateway) HasConsole() bool             { return s.console }
-func (s *stubGateway) SetConsole(show bool) error   { s.console = show; return nil }
-func (s *stubGateway) AutoStartEnabled() bool       { return s.autoStart }
-func (s *stubGateway) SetAutoStart(on bool) error   { s.autoStart = on; return nil }
+func (s *stubGateway) Start() (uint32, error) {
+	s.pid = status.PIDInfo{Found: true, PID: 4242}
+	return 4242, nil
+}
+func (s *stubGateway) Stop() error                { s.pid = status.PIDInfo{}; return nil }
+func (s *stubGateway) Restart() (uint32, error)   { return s.Start() }
+func (s *stubGateway) HasConsole() bool           { return s.console }
+func (s *stubGateway) SetConsole(show bool) error { s.console = show; return nil }
+func (s *stubGateway) AutoStartEnabled() bool     { return s.autoStart }
+func (s *stubGateway) SetAutoStart(on bool) error { s.autoStart = on; return nil }
 
-// TestLiveMenuLaysOutAndPaints runs the real application's menu — every row the
-// tray would offer, in the real order, with the real wording — through the real
-// painter.
+// TestTopLevelMenuIsNineRows is the shape of the whole rewrite.
 //
-// The synthetic menu in the other test proves the painter can draw every kind of
-// row; this proves the menu the application actually builds is one the painter
-// can draw. Those are different failures, and only the second one ships.
-func TestLiveMenuLaysOutAndPaints(t *testing.T) {
-	for _, lang := range []string{"zh", "en"} {
-		for _, menuStyle := range []string{"flyout", "native"} {
-			name := lang + "-" + menuStyle
-			t.Run(name, func(t *testing.T) {
-				cfg := config.Default()
-				cfg.Lang = lang
-				cfg.MenuStyle = menuStyle
-				cfg.BaseURL = "http://127.0.0.1:7863"
-				cfg.APIKey = "test-key"
+// The menu used to put every figure, every style and every maintenance action at the
+// top level: twenty-six rows, taller than a laptop screen at a large text size, with
+// the rows an operator reaches for somewhere in the middle of it. The count is
+// asserted rather than described because the way a menu grows back is one reasonable
+// addition at a time.
+func TestTopLevelMenuIsNineRows(t *testing.T) {
+	cfg := config.Default()
+	cfg.Lang = "zh"
+	a := app.New(cfg, "", &stubGateway{pid: status.PIDInfo{Found: true, PID: 16780}}, app.Options{})
 
-				gw := &stubGateway{pid: status.PIDInfo{Found: true, PID: 16780, Started: true}}
-				a := app.New(cfg, "", gw, app.Options{})
-				a.SetPaused(false)
+	items := a.Menu()
+	rows, separators := 0, 0
+	for _, it := range items {
+		if it.Kind == traymenu.SeparatorRow {
+			separators++
+			continue
+		}
+		rows++
+	}
+	if rows != 9 {
+		t.Errorf("the top level has %d rows, want 9:\n%s", rows, describe(items))
+	}
+	if separators != 2 {
+		t.Errorf("the top level has %d separators, want 2", separators)
+	}
+}
 
-				items := a.Menu()
-				if len(items) < 10 {
-					t.Fatalf("the menu has only %d rows", len(items))
-				}
+// TestEveryLabelIsShort is the naming rule the rewrite was asked for.
+//
+// Two characters for a Chinese label and one word for an English one, because a long
+// label beside a short one makes the short one look like a different kind of thing.
+// It is checked rather than trusted: the natural way to write a new row is to
+// describe what it does, and the description is always too long.
+func TestEveryLabelIsShort(t *testing.T) {
+	cfg := config.Default()
+	cfg.Lang = "zh"
+	a := app.New(cfg, "", &stubGateway{pid: status.PIDInfo{Found: true, PID: 16780}}, app.Options{})
 
-				f := &flyout{hover: -1, pressed: -1, subOwner: -1}
-				f.mu.Lock()
-				f.theme = theme.ByName(cfg.Theme)
-				f.scale = 1
-				f.mu.Unlock()
-				f.layout(items)
-
-				f.mu.Lock()
-				rows, w, h := f.rows, f.width, f.height
-				f.mu.Unlock()
-				if w < 200 || h < 200 {
-					t.Fatalf("laid out %dx%d", w, h)
-				}
-
-				c := raster.New(w, h)
-				paintMenu(c, rows, 1, theme.ByName(cfg.Theme), -1, 0)
-				painted := 0
-				for y := 0; y < c.H; y++ {
-					for x := 0; x < c.W; x++ {
-						if c.At(x, y).A > 200 {
-							painted++
-						}
-					}
-				}
-				if painted < c.W*c.H/2 {
-					t.Fatalf("only %d of %d pixels are opaque", painted, c.W*c.H)
-				}
-
-				if dir := os.Getenv("WBTRAY_MENU_DIR"); dir != "" {
-					writeSheet(t, dir, name, c)
-				}
-			})
+	for _, it := range rowsOf(a.Menu()) {
+		if it.ID == 0 {
+			// A row with no command id is a readout, and a readout says whatever
+			// it has to say: "无法连接 127.0.0.1:7863" is the whole message, and
+			// shortening it to four characters would leave it saying nothing.
+			continue
+		}
+		if n := len([]rune(it.Text)); n > 4 {
+			t.Errorf("the label %q is %d characters; menu labels are 2 to 4", it.Text, n)
 		}
 	}
 }
 
-// TestLiveMenuWithNoGateway draws the menu for a gateway that is not running,
-// which is the state a new install starts in and therefore the one most likely
-// to be broken by a change to the model.
-func TestLiveMenuWithNoGateway(t *testing.T) {
+// rowsOf walks every row at every depth, which is the only way a rule like the one
+// above applies to the whole menu rather than to what is visible at once.
+func rowsOf(items []traymenu.Item) []traymenu.Item {
+	var out []traymenu.Item
+	for _, it := range items {
+		if it.Kind == traymenu.SeparatorRow {
+			continue
+		}
+		out = append(out, it)
+		out = append(out, rowsOf(it.Children)...)
+	}
+	return out
+}
+
+// describe renders a menu as text, so a failure prints what was actually built.
+func describe(items []traymenu.Item) string {
+	out := ""
+	for _, it := range items {
+		if it.Kind == traymenu.SeparatorRow {
+			out += "---\n"
+			continue
+		}
+		out += it.Text
+		if it.Kind == traymenu.SubmenuRow {
+			out += " >"
+		}
+		if it.Value != "" {
+			out += "  [" + it.Value + "]"
+		}
+		out += "\n"
+	}
+	return out
+}
+
+// TestCopySubmenuOffersBothValues checks the rows the submenu exists for.
+//
+// The address is what an operator pastes into a browser and the key is what a client
+// needs. Both were previously unreachable: the first because its row was inert, and
+// the second because no row existed at all.
+func TestCopySubmenuOffersBothValues(t *testing.T) {
 	cfg := config.Default()
-	// In English, so the assertions below can name a row without the test having
-	// to hold a copy of the message table.
+	cfg.Lang = "zh"
+	cfg.BaseURL = "http://127.0.0.1:7863"
+	cfg.APIKey = "sk-test"
+
+	a := app.New(cfg, "", &stubGateway{}, app.Options{})
+	item, ok := submenuWithChild(a.Menu(), app.IDCopyURL)
+	if !ok {
+		t.Fatalf("no copy submenu:\n%s", describe(a.Menu()))
+	}
+	if len(item.Children) != 2 {
+		t.Fatalf("the copy submenu has %d rows, want 2", len(item.Children))
+	}
+
+	addr := item.Children[0]
+	if addr.ID != app.IDCopyURL {
+		t.Errorf("the first row is id %d, want the address row", addr.ID)
+	}
+	// The value shown is the host, which is the part that fits a menu column; what
+	// is copied is the full address with its scheme.
+	if addr.Value != "127.0.0.1:7863" {
+		t.Errorf("the address row shows %q, want the host", addr.Value)
+	}
+	if addr.Disabled {
+		t.Error("the address row is inert")
+	}
+
+	key := item.Children[1]
+	if key.ID != app.IDCopyKey {
+		t.Errorf("the second row is id %d, want the key row", key.ID)
+	}
+	// The key itself must not be in the menu: an open menu is a screenshot.
+	if key.Value != "" {
+		t.Errorf("the key row carries the key itself: %q", key.Value)
+	}
+}
+
+// TestCopyKeyRowIsInertWithoutAKey checks the empty case, which is the state a first
+// run is in before discovery has read the gateway's configuration.
+func TestCopyKeyRowIsInertWithoutAKey(t *testing.T) {
+	cfg := config.Default()
+	cfg.Lang = "en"
+	cfg.APIKey = ""
+	cfg.DiscoveryEnabled = false
+
+	a := app.New(cfg, "", &stubGateway{}, app.Options{})
+	item, ok := submenuWithChild(a.Menu(), app.IDCopyKey)
+	if !ok {
+		t.Fatalf("no copy submenu:\n%s", describe(a.Menu()))
+	}
+	key := item.Children[1]
+	if !key.Disabled {
+		t.Error("the key row is clickable with no key to copy")
+	}
+	if key.Value != i18n.T("en", "copy.none") {
+		t.Errorf("the key row says %q, want the empty-state wording", key.Value)
+	}
+}
+
+// TestGatewayRowCarriesThePID checks the value column on a submenu row, which is
+// where the pid is shown now that it is not a row of its own.
+//
+// A reading has to happen first: the row is built from the snapshot, and the snapshot
+// is what carries the process the tray is watching.
+func TestGatewayRowCarriesThePID(t *testing.T) {
+	server := newFakePanel(t)
+	defer server.Close()
+
+	cfg := config.Default()
+	cfg.Lang = "en"
+	cfg.BaseURL = server.URL
+	cfg.APIKey = "test-key"
+
+	a := app.New(cfg, "", &stubGateway{pid: status.PIDInfo{Found: true, PID: 16780}}, app.Options{})
+	a.Refresh()
+
+	var found bool
+	for _, it := range a.Menu() {
+		// The label carries a state suffix while the gateway is down, so the test
+		// matches on the prefix rather than on the whole string.
+		if it.Kind == traymenu.SubmenuRow && strings.HasPrefix(it.Text, i18n.T("en", "menu.gateway")) {
+			found = true
+			if it.Value != "PID 16780" {
+				t.Errorf("the gateway row shows %q, want the pid", it.Value)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("no gateway row:\n%s", describe(a.Menu()))
+	}
+}
+
+// TestStatusRowsAreOwnerDrawn checks the rows whose colour is information.
+//
+// It is the reason those two rows are painted by hand at all: the shell dims a row it
+// cannot click, and it dims that row's icon with it.
+func TestStatusRowsAreOwnerDrawn(t *testing.T) {
+	cfg := config.Default()
 	cfg.Lang = "en"
 	a := app.New(cfg, "", &stubGateway{}, app.Options{})
-	// The fresh-install state in full: no gateway running, none installed, and no
-	// accounts anywhere.
-	a.SetGatewayInstalled(false)
-	items := a.Menu()
-	f := &flyout{hover: -1, pressed: -1, subOwner: -1}
-	f.mu.Lock()
-	f.theme = theme.Neon()
-	f.scale = 1
-	f.mu.Unlock()
-	f.layout(items)
-	f.mu.Lock()
-	rows, w, h := f.rows, f.width, f.height
-	f.mu.Unlock()
-	c := raster.New(w, h)
-	paintMenu(c, rows, 1, theme.Neon(), -1, 0)
-	if c.At(w/2, h/2).A == 0 {
-		t.Fatal("nothing was painted")
+
+	count := 0
+	for _, it := range a.Menu() {
+		if it.OwnerDraw {
+			count++
+			if it.Dot.A == 0 {
+				t.Errorf("the owner-drawn row %q carries no colour", it.Text)
+			}
+		}
 	}
-	// The action a fresh install needs must be offered: there is no gateway to
-	// start, so the useful thing to offer is fetching one.
-	if !menuHasText(items, "Download and install") {
-		t.Error("with no gateway installed, the menu does not offer to install one")
-	}
-	if dir := os.Getenv("WBTRAY_MENU_DIR"); dir != "" {
-		writeSheet(t, dir, "fresh-install-en", c)
+	if count != 2 {
+		t.Errorf("%d rows are drawn by hand, want the two status rows", count)
 	}
 }
 
-// menuHasText reports whether any row, at any depth, contains a phrase.
-func menuHasText(items []traymenu.Item, phrase string) bool {
+// submenuWithChild finds a submenu whose children include a given command id.
+func submenuWithChild(items []traymenu.Item, id uint32) (traymenu.Item, bool) {
 	for _, it := range items {
-		if strings.Contains(it.Text, phrase) {
-			return true
+		if it.Kind != traymenu.SubmenuRow {
+			continue
 		}
-		if menuHasText(it.Children, phrase) {
-			return true
-		}
-	}
-	return false
-}
-
-// TestUnreachableGatewaySaysSo checks the wording of the state a fresh install
-// shows before the gateway is up, which is the message most users see first.
-func TestUnreachableGatewaySaysSo(t *testing.T) {
-	for _, lang := range []string{"zh", "en"} {
-		cfg := config.Default()
-		cfg.Lang = lang
-		cfg.BaseURL = "http://127.0.0.1:7863"
-		a := app.New(cfg, "", &stubGateway{}, app.Options{})
-
-		tip := a.Tooltip()
-		if tip == "" {
-			t.Fatalf("%s: the tooltip is empty", lang)
-		}
-		if !contains(tip, "7863") {
-			t.Errorf("%s: the tooltip does not name the address it cannot reach: %q", lang, tip)
+		for _, child := range it.Children {
+			if child.ID == id {
+				return it, true
+			}
 		}
 	}
+	return traymenu.Item{}, false
 }
-
-func contains(haystack, needle string) bool {
-	return len(haystack) >= len(needle) && (len(needle) == 0 || indexOfSub(haystack, needle) >= 0)
-}
-
-func indexOfSub(haystack, needle string) int {
-	for i := 0; i+len(needle) <= len(haystack); i++ {
-		if haystack[i:i+len(needle)] == needle {
-			return i
-		}
-	}
-	return -1
-}
-
-// writeSheet saves a painted menu for inspection. It is a build artefact rather
-// than a fixture: nothing reads it back.
-func writeSheet(t *testing.T, dir, name string, c *raster.Canvas) {
-	t.Helper()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	file, err := os.Create(dir + string(os.PathSeparator) + name + ".png")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer file.Close()
-	if err := png.Encode(file, c.Image()); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// Unused-import guards: the application is exercised through its own surface,
-// and the context import documents that a client would be cancelled.
-var _ = context.Background

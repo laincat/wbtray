@@ -49,14 +49,18 @@ type Account struct {
 	Cooling    bool   `json:"cooling"`
 	CoolKind   string `json:"cool_kind"`
 	CoolRemain int64  `json:"cool_remaining_sec"`
-	Disabled   bool   `json:"disabled"`
-	Realm      string `json:"realm"`
-	InFlight   int    `json:"in_flight"`
-	Success    int64  `json:"success_count"`
-	ErrTotal   int64  `json:"err_total"`
-	Reason     string `json:"reason"`
-	DisabledBy string `json:"disabled_reason"`
-	Breaker    int    `json:"breaker_fails"`
+	// Until is when a cooldown ends, which is what the gateway actually sends.
+	// The remaining time is worked out from it, because a duration would be stale
+	// the moment the reading was taken.
+	Until      time.Time `json:"until"`
+	Disabled   bool      `json:"disabled"`
+	Realm      string    `json:"realm"`
+	InFlight   int       `json:"in_flight"`
+	Success    int64     `json:"success_count"`
+	ErrTotal   int64     `json:"err_total"`
+	Reason     string    `json:"reason"`
+	DisabledBy string    `json:"disabled_reason"`
+	Breaker    int       `json:"breaker_fails"`
 }
 
 // Usage is the usage snapshot, reduced to what fits in a tray.
@@ -75,7 +79,7 @@ type Usage struct {
 	// chart metric does not need another round trip.
 	Tokens  []float64
 	Latency []float64
-	Labels []string
+	Labels  []string
 }
 
 // PIDInfo is the gateway process as far as the tray can see it.
@@ -96,6 +100,30 @@ func (s Snapshot) CreditTotal() int64 {
 		}
 	}
 	return sum
+}
+
+// CoolRemaining is how long an account's cooldown has left.
+//
+// The gateway reports when a cooldown ends rather than how long is left, so the
+// duration has to be worked out against the clock. It also means the figure goes
+// stale on its own: a reading taken a minute ago describes a cooldown that has a
+// minute less to run, which is exactly right for something drawn once and read
+// once.
+func (a Account) CoolRemaining() time.Duration {
+	if !a.Cooling {
+		return 0
+	}
+	// Some builds report a duration directly, and it wins when it is there.
+	if a.CoolRemain > 0 {
+		return time.Duration(a.CoolRemain) * time.Second
+	}
+	if a.Until.IsZero() {
+		return 0
+	}
+	if left := time.Until(a.Until); left > 0 {
+		return left
+	}
+	return 0
 }
 
 // Ready counts the accounts that can serve a request right now.

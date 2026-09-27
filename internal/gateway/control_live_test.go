@@ -133,3 +133,74 @@ func standInGateway(t *testing.T) string {
 	}
 	return dst
 }
+
+// TestConsoleWindowCanBeShownAndHidden is the reading that used to be impossible.
+//
+// A gateway started by the tray was created with no console at all, so there was
+// nothing for "show the console" to show: the process was already running, and a
+// console cannot be attached to it after the fact. The switch now allocates a console
+// and hides it, which is what makes both directions work.
+//
+// The test runs against a stand-in rather than the real gateway for the same reason
+// the start/stop test does: it ends what it starts.
+func TestConsoleWindowCanBeShownAndHidden(t *testing.T) {
+	exe := standInGateway(t)
+	t.Setenv("WBTRAY_HELPER", "1")
+
+	// showConsole=false is the interesting case: the console has to exist and be
+	// hidden, which is exactly the state the old flags could not produce.
+	proc, err := Start(exe, "", false, "-test.run=TestHelperIsAGateway")
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer func() {
+		if proc.PID != 0 {
+			_ = Stop(proc.PID)
+		}
+	}()
+
+	// The console appears a moment after the process does.
+	haveConsole := false
+	for i := 0; i < 40 && !haveConsole; i++ {
+		time.Sleep(50 * time.Millisecond)
+		haveConsole = HasConsole(proc.PID)
+	}
+	if !haveConsole {
+		t.Fatal("a gateway started by the tray has no console window, so the " +
+			"console switch cannot work on it")
+	}
+
+	if err := ShowConsole(proc.PID); err != nil {
+		t.Fatalf("ShowConsole: %v", err)
+	}
+	if !consoleIsVisible(t, proc.PID) {
+		t.Error("the console is still hidden after ShowConsole")
+	}
+
+	if err := HideConsole(proc.PID); err != nil {
+		t.Fatalf("HideConsole: %v", err)
+	}
+	if consoleIsVisible(t, proc.PID) {
+		t.Error("the console is still visible after HideConsole")
+	}
+
+	// And back again, because a switch that works once and then sticks is worse
+	// than one that never worked.
+	if err := ShowConsole(proc.PID); err != nil {
+		t.Fatalf("ShowConsole (second time): %v", err)
+	}
+	if !consoleIsVisible(t, proc.PID) {
+		t.Error("the console did not come back")
+	}
+}
+
+// consoleIsVisible reports whether the process's console window is on screen.
+func consoleIsVisible(t *testing.T, pid uint32) bool {
+	t.Helper()
+	hwnd := consoleWindowFor(pid)
+	if hwnd == 0 {
+		t.Fatal("the console window disappeared")
+	}
+	visible, _, _ := procIsWindowVisible.Call(hwnd)
+	return visible != 0
+}

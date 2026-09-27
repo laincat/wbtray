@@ -22,32 +22,34 @@ import (
 
 // Window messages and tray-protocol constants.
 const (
-	wmDestroy     = 0x0002
-	wmSize        = 0x0005
-	wmClose       = 0x0010
-	wmPaint       = 0x000f
-	wmEraseBkgnd  = 0x0014
-	wmCommand     = 0x0111
-	wmTimer       = 0x0113
-	wmLButtonUp   = 0x0202
-	wmLButtonDBL   = 0x0203
-	wmRButtonUp   = 0x0205
-	wmMouseMove   = 0x0200
-	wmMouseLeave  = 0x02A3
-	wmMouseHover  = 0x02A1
-	wmKeyDown     = 0x0100
-	wmSysKeyDown  = 0x0104
+	wmDestroy       = 0x0002
+	wmSize          = 0x0005
+	wmClose         = 0x0010
+	wmPaint         = 0x000f
+	wmEraseBkgnd    = 0x0014
+	wmCommand       = 0x0111
+	wmTimer         = 0x0113
+	wmDrawItem      = 0x002B
+	wmMeasureItem   = 0x002C
+	wmLButtonUp     = 0x0202
+	wmLButtonDBL    = 0x0203
+	wmRButtonUp     = 0x0205
+	wmMouseMove     = 0x0200
+	wmMouseLeave    = 0x02A3
+	wmMouseHover    = 0x02A1
+	wmKeyDown       = 0x0100
+	wmSysKeyDown    = 0x0104
 	wmSettingChange = 0x001A
 	wmDisplayChange = 0x007E
-	wmDpiChanged   = 0x02E0
-	wmContextMenu  = 0x007B
+	wmDpiChanged    = 0x02E0
+	wmContextMenu   = 0x007B
 
 	callbackMsg = 0x8000 + 1 // WM_APP + 1
 	trayID      = 1
 
-	nimAdd    = 0
-	nimModify = 1
-	nimDelete = 2
+	nimAdd        = 0
+	nimModify     = 1
+	nimDelete     = 2
 	nimSetVersion = 4
 
 	nifMessage = 0x01
@@ -69,14 +71,16 @@ const (
 	ninSelect    = 0x0400 // WM_USER + 0
 	ninKeySelect = 0x0401 // WM_USER + 1
 
-	mfString    = 0x0000
-	mfSeparator = 0x0800
-	mfChecked   = 0x0008
-	mfGrayed    = 0x0001
-	mfPopup     = 0x0010
-	mfOwnerDraw = 0x0100
-	mfBitmap    = 0x0004
-	tpmRightBtn = 0x0002
+	mfString     = 0x0000
+	mfSeparator  = 0x0800
+	mfChecked    = 0x0008
+	mfGrayed     = 0x0001
+	mfDisabled   = 0x0002
+	mfDefault    = 0x1000
+	mfPopup      = 0x0010
+	mfOwnerDraw  = 0x0100
+	mfBitmap     = 0x0004
+	tpmRightBtn  = 0x0002
 	tpmReturnCmd = 0x0100
 
 	idiApp    = 32512
@@ -91,38 +95,6 @@ const (
 	animTimerMs = 80
 )
 
-// Menu item identifiers. Kept above 1000 so they cannot collide with a system
-// menu id, and stable so a click always maps to the same action.
-const (
-	IDRefresh = 1000 + iota
-	IDPause
-	IDOpenPanel
-	IDOpenDashboard
-	IDOpenChart
-	IDCopyURL
-	IDOpenConfig
-	IDOpenFolder
-	IDAutoStart
-	IDGatewayAutoStart
-	IDGatewayStart
-	IDGatewayStop
-	IDGatewayRestart
-	IDConsoleToggle
-	IDAbout
-	IDQuit
-	IDClassicMenu
-	IDReload
-	IDAccountFirst // account rows are IDAccountFirst+i
-)
-
-// styleIDBase is the first id a style row carries. The application owns the
-// numbering; the tray needs it only to work out which style a preview is for.
-const styleIDBase = 2000
-
-// accountRows is how many accounts get their own menu row. A pool of thirty
-// accounts would otherwise produce a menu taller than the screen.
-const accountRows = 12
-
 // Callbacks are the actions the tray invokes.
 type Callbacks struct {
 	// Menu is consulted on every right-click, so toggles always reflect live
@@ -136,8 +108,7 @@ type Callbacks struct {
 	DoubleClick func()
 	// Tick runs on the tooltip refresh timer.
 	Tick func()
-	// IconView renders the tray icon at a given size. The flyout asks for it
-	// while painting, so the menu's own mark matches the live one.
+	// IconView renders the tray icon at a given size.
 	IconView func(size int) *raster.Canvas
 	// StylePreview renders one style at a requested size, so the menu's style
 	// gallery draws the icon it is offering rather than rescaling a smaller one.
@@ -148,8 +119,6 @@ type Callbacks struct {
 type Icon struct {
 	cb    Callbacks
 	title string
-	// MenuStyle selects the native menu or the owner-drawn flyout.
-	menuStyle MenuStyle
 
 	mu    sync.Mutex
 	hwnd  uintptr
@@ -160,23 +129,12 @@ type Icon struct {
 	// wndProcRef pins the callback for the process lifetime: if the Go closure
 	// were collected, Windows would call freed memory.
 	wndProcRef uintptr
-	// flyout is created lazily, on the first use of the drawn menu.
-	flyout *flyout
+	// menuPainter is installed while a menu is open, because that is where
+	// WM_DRAWITEM arrives and the rows it has to paint live.
+	menuPainter *statusPainter
 	// lastClickTime implements the double-click test for the icon.
 	lastClickTime uint32
 }
-
-// MenuStyle selects how the context menu is drawn.
-type MenuStyle int
-
-// The two menu styles.
-const (
-	// MenuFlyout is the tray's own drawn menu: themed, with previews.
-	MenuFlyout MenuStyle = iota
-	// MenuNative is the system menu, which follows the OS theme and the user's
-	// accessibility settings.
-	MenuNative
-)
 
 // New builds a tray icon bound to the given callbacks.
 func New(title string, cb Callbacks) *Icon {
@@ -198,13 +156,6 @@ func (t *Icon) menuItems() []traymenu.Item {
 		return nil
 	}
 	return t.cb.Menu()
-}
-
-// SetMenuStyle switches between the drawn and the system menu.
-func (t *Icon) SetMenuStyle(style MenuStyle) {
-	t.mu.Lock()
-	t.menuStyle = style
-	t.mu.Unlock()
 }
 
 // SetTooltip updates the hover text. Safe to call from any goroutine.
@@ -247,9 +198,6 @@ func (t *Icon) SetIcon(c *raster.Canvas) {
 	// without ever leaving the shell pointing at freed memory.
 	if old != 0 && old != hicon {
 		winapi.ProcDestroyIcon.Call(old)
-	}
-	if t.flyout != nil {
-		t.flyout.refresh(t)
 	}
 }
 
@@ -348,17 +296,12 @@ func (t *Icon) Run() error {
 	// that costs, so the icon itself stays responsive.
 	winapi.ProcSetTimer.Call(hwnd, tipTimerID, tipTimerMs, 0)
 
-	t.createFlyout(hInst)
-
 	var msg winapi.Msg
 	for {
 		ret, _, _ := winapi.ProcGetMessageW.Call(uintptr(unsafe.Pointer(&msg)), 0, 0, 0)
 		if int32(ret) <= 0 {
 			break
 		}
-		// The flyout contains no child controls, so it needs no dialog keyboard
-		// handling; IsDialogMessage is deliberately not called, because it would
-		// swallow Tab and Enter that the flyout handles itself.
 		winapi.ProcTranslateMessage.Call(uintptr(unsafe.Pointer(&msg)))
 		winapi.ProcDispatchMessageW.Call(uintptr(unsafe.Pointer(&msg)))
 	}
