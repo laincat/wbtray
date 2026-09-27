@@ -49,9 +49,14 @@ func (a *App) Menu() []traymenu.Item {
 	// The two status rows. They are the only rows the front end paints, because
 	// they are the only rows whose colour is information: the system dims a row it
 	// cannot click, and it dims the row's icon with it.
+	//
+	// The header is the state and the address, and deliberately not the program's
+	// own name: this is wbtray's menu, so writing "wbtray" in it is a word that
+	// tells the reader nothing and makes the header the widest row — and a menu is
+	// as wide as its widest row.
 	items := []traymenu.Item{
 		traymenu.Status(
-			fmt.Sprintf("%s · %s", i18n.T(lang, "app.name"), healthLabel(lang, health)),
+			healthLabel(lang, health),
 			hostOf(cfg.BaseURL), colorOf(th, health), true),
 	}
 	items = append(items, a.statusRow(snap, paused, cfg, th, lang))

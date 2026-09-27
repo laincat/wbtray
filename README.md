@@ -76,7 +76,7 @@ Eight rows at the top level, each label two characters:
 
 | Row | What it does |
 |---|---|
-| **wbtray · healthy** | the state, with the gateway address beside it |
+| **healthy** | the state, with the gateway address beside it |
 | **Accounts** | ready over total, and the credits behind them |
 | **Panel** | opens the console, with the API key already filled in |
 | **Gateway ▸** | the pid, start / stop / restart, the console window, the address and key to copy, autostart, and the folder and file it lives in |

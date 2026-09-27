@@ -111,6 +111,15 @@ func (b *menuBitmapOwner) release() {
 	b.handles = nil
 }
 
+// The spacing an owner-draw row is measured with, in the same terms the painter
+// draws it: an inset at each end, a gutter for the colour pip, and a gap between the
+// label and the right-aligned value.
+const (
+	ownerInset     = 12
+	ownerDotGutter = 22
+	ownerGap       = 18
+)
+
 // statusPainter holds what the owner-draw rows need while a menu is open: the rows
 // themselves, keyed by the value passed as ItemData, and the metrics of the font the
 // shell draws menus with.
@@ -118,42 +127,48 @@ type statusPainter struct {
 	rows      map[uintptr]traymenu.Item
 	rowHeight int32
 	ascent    int32
+	// width is what every owner-draw row reports through MEASUREITEMSTRUCT.
+	//
+	// The shell does not size a row it is not drawing; the row states its own
+	// width. Reporting a width larger than the row needs is therefore not
+	// harmless — a menu is as wide as its widest row, so one generous number
+	// widens every row in the menu. It is measured from the strings instead.
+	width int32
+	// hdc is a screen DC with the menu font selected, kept for the life of the
+	// menu because both the metrics and every row's width are measured against it.
+	hdc     uintptr
+	oldFont uintptr
 }
 
 func newStatusPainter() *statusPainter {
 	p := &statusPainter{rows: map[uintptr]traymenu.Item{}, rowHeight: 26, ascent: 12}
-	p.measureFont()
+	p.setup()
 	return p
 }
 
-// measureFont reads the system menu font's metrics.
+// setup opens the DC the painter measures against and reads the menu font's
+// metrics from it.
 //
 // The de-facto menu font is the default GUI font, which is what the DC inside
 // WM_DRAWITEM already has selected. Reading its metrics rather than hard-coding a
 // row height is what keeps the rows the right size on a machine whose text scaling
 // is not the default.
-func (p *statusPainter) measureFont() {
+func (p *statusPainter) setup() {
 	hdc, _, _ := winapi.ProcGetDC.Call(0)
 	if hdc == 0 {
 		return
 	}
-	defer winapi.ProcReleaseDC.Call(0, hdc)
-
-	mem, _, _ := winapi.ProcCreateCompatibleDC.Call(hdc)
-	if mem == 0 {
-		return
-	}
-	defer winapi.ProcDeleteDC.Call(mem)
-
 	font, _, _ := winapi.ProcGetStockObject.Call(defaultGuiFont)
 	if font == 0 {
+		winapi.ProcReleaseDC.Call(0, hdc)
 		return
 	}
-	old, _, _ := winapi.ProcSelectObject.Call(mem, font)
-	defer winapi.ProcSelectObject.Call(mem, old)
+	p.hdc = hdc
+	old, _, _ := winapi.ProcSelectObject.Call(hdc, font)
+	p.oldFont = old
 
 	var tm textMetric
-	if ret, _, _ := winapi.ProcGetTextMetricsW.Call(mem, uintptr(unsafe.Pointer(&tm))); ret == 0 {
+	if ret, _, _ := winapi.ProcGetTextMetricsW.Call(hdc, uintptr(unsafe.Pointer(&tm))); ret == 0 {
 		return
 	}
 	if tm.Ascent <= 0 || tm.Height <= 0 {
@@ -164,11 +179,46 @@ func (p *statusPainter) measureFont() {
 	p.rowHeight = tm.Height + 12
 }
 
+// release gives back the DC the painter borrowed.
+func (p *statusPainter) release() {
+	if p.hdc == 0 {
+		return
+	}
+	if p.oldFont != 0 {
+		winapi.ProcSelectObject.Call(p.hdc, p.oldFont)
+	}
+	winapi.ProcReleaseDC.Call(0, p.hdc)
+	p.hdc = 0
+	p.oldFont = 0
+}
+
 // add registers a row to be painted and returns the index to pass as ItemData.
 func (p *statusPainter) add(it traymenu.Item) uintptr {
 	key := uintptr(len(p.rows) + 1)
 	p.rows[key] = it
+	if w := p.rowWidth(it); w > p.width {
+		p.width = w
+	}
 	return key
+}
+
+// rowWidth is the width one owner-draw row has to be given: the insets the painter
+// draws with, the colour gutter when there is a pip, the label, and the value.
+func (p *statusPainter) rowWidth(it traymenu.Item) int32 {
+	// Without a DC the text cannot be measured, so a plausible minimum is
+	// reported rather than a zero that would clip every row.
+	if p.hdc == 0 {
+		return 160
+	}
+	w := int32(ownerInset + ownerInset)
+	if it.Dot.A > 0 {
+		w += ownerDotGutter
+	}
+	w += int32(measureText(p.hdc, it.Text))
+	if it.Value != "" {
+		w += ownerGap + int32(measureText(p.hdc, it.Value))
+	}
+	return w
 }
 
 func (p *statusPainter) lookup(key uintptr) (traymenu.Item, bool) {
@@ -344,6 +394,7 @@ func (t *Icon) showNativeMenu(x, y int) {
 	}
 	defer winapi.ProcDestroyMenu.Call(menu)
 	defer bitmaps.release()
+	defer painter.release()
 
 	var pt winapi.Point
 	winapi.ProcGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))

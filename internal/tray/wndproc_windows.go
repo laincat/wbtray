@@ -61,7 +61,10 @@ func (t *Icon) wndProc(hwnd uintptr, msg uint32, wparam uintptr, lparam unsafe.P
 		if mis.CtlType != odtMenu {
 			return 0
 		}
-		mis.ItemWidth = 320
+		// The width the rows were measured at, which is the widest of them and
+		// no wider: a menu is as wide as its widest row, so a number larger than
+		// the rows need widens the whole menu.
+		mis.ItemWidth = uint32(painter.width)
 		mis.ItemHeight = uint32(painter.rowHeight)
 		return 1
 
