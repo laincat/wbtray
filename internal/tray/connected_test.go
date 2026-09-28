@@ -144,7 +144,7 @@ func TestIconAdaptsToHealth(t *testing.T) {
 	}
 	down := status.Snapshot{Reachable: false}
 
-	th := theme.System(theme.Accent{})
+	th := theme.Dark()
 	a := iconCanvasFor(t, healthy, th)
 	b := iconCanvasFor(t, down, th)
 	if samePixels(a, b) {

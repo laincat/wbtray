@@ -40,28 +40,26 @@ func sampleReading() status.Snapshot {
 // keeps that a decision rather than an oversight.
 func TestEveryStyleStaysInsideItsBox(t *testing.T) {
 	snap := sampleReading()
-	for _, p := range theme.All(theme.Accent{}) {
-		for _, light := range []bool{false, true} {
-			pal := p.On(light)
-			for _, style := range config.Styles {
-				for _, size := range []int{16, 20, 24, 32, 48} {
-					c := Draw(View{
-						Size: size, Style: style, Metric: config.MetricRequests,
-						Lang: "en", Palette: pal, Snap: snap,
-					})
-					limit := 0
-					if inset := insetFor(style); inset > 0 {
-						limit = int(float64(size) * inset)
-					}
-					for y := 0; y < c.H; y++ {
-						for x := 0; x < c.W; x++ {
-							if c.At(x, y).A <= 40 {
-								continue
-							}
-							if x < limit || y < limit || x >= c.W-limit || y >= c.H-limit {
-								t.Fatalf("%s/%s light=%v at %d: ink at (%d,%d) is inside the %dpx margin, so it is drawn on the taskbar",
-									pal.Name, style, light, size, x, y, limit)
-							}
+	for _, light := range []bool{false, true} {
+		pal := theme.On(light)
+		for _, style := range config.Styles {
+			for _, size := range []int{16, 20, 24, 32, 48} {
+				c := Draw(View{
+					Size: size, Style: style, Metric: config.MetricRequests,
+					Lang: "en", Palette: pal, Snap: snap,
+				})
+				limit := 0
+				if inset := insetFor(style); inset > 0 {
+					limit = int(float64(size) * inset)
+				}
+				for y := 0; y < c.H; y++ {
+					for x := 0; x < c.W; x++ {
+						if c.At(x, y).A <= 40 {
+							continue
+						}
+						if x < limit || y < limit || x >= c.W-limit || y >= c.H-limit {
+							t.Fatalf("%s/%s light=%v at %d: ink at (%d,%d) is inside the %dpx margin, so it is drawn on the taskbar",
+								pal.Name, style, light, size, x, y, limit)
 						}
 					}
 				}
@@ -94,7 +92,7 @@ func TestEveryStyleDrawsSomething(t *testing.T) {
 // TestTheIconReactsToHealth is why the icon is drawn rather than shipped: a
 // glance has to distinguish a working gateway from a broken one.
 func TestTheIconReactsToHealth(t *testing.T) {
-	pal := theme.System(theme.Accent{})
+	pal := theme.Dark()
 	healthy := sampleReading()
 	down := status.Snapshot{Reachable: false}
 	for _, style := range config.Styles {
@@ -108,7 +106,7 @@ func TestTheIconReactsToHealth(t *testing.T) {
 
 // TestPausedLooksDifferentFromHealthy checks the third state the icon carries.
 func TestPausedLooksDifferentFromHealthy(t *testing.T) {
-	pal := theme.System(theme.Accent{})
+	pal := theme.Dark()
 	snap := sampleReading()
 	for _, style := range config.Styles {
 		a := Draw(View{Size: 32, Style: style, Metric: config.MetricAccounts, Lang: "en", Palette: pal, Snap: snap})

@@ -50,6 +50,8 @@ var (
 	ProcEndPaint            = user32.NewProc("EndPaint")
 	ProcInvalidateRect      = user32.NewProc("InvalidateRect")
 	ProcUpdateWindow        = user32.NewProc("UpdateWindow")
+	ProcIsWindowVisible     = user32.NewProc("IsWindowVisible")
+	ProcAdjustWindowRectEx  = user32.NewProc("AdjustWindowRectEx")
 	ProcFillRect            = user32.NewProc("FillRect")
 	ProcReleaseCapture      = user32.NewProc("ReleaseCapture")
 	ProcGetSystemMetrics    = user32.NewProc("GetSystemMetrics")
@@ -271,6 +273,28 @@ func CopyUTF16(dst []uint16, s string) {
 
 // LowWord extracts the low 16 bits of a message parameter (menu / item ids).
 func LowWord(v uintptr) uint32 { return uint32(v & 0xffff) }
+
+// WindowSizeForClient converts a wanted client area into the window size that
+// produces it.
+//
+// A window's width and height are measured including its frame, so creating a
+// window 1100x720 gives a client area about thirty pixels shorter — which is how a
+// layout that computed its own height ended up with its last row cut off. Asking
+// the shell for the difference is the only reliable way to know it, because the
+// frame depends on the window's style, its DPI and whether it is maximised.
+func WindowSizeForClient(cw, ch int, style uint32) (int, int) {
+	r := Rect{Right: int32(cw), Bottom: int32(ch)}
+	const (
+		hasMenu        = 0
+		extendedStyles = 0
+	)
+	ProcAdjustWindowRectEx.Call(uintptr(unsafe.Pointer(&r)), uintptr(style), hasMenu, extendedStyles)
+	return int(r.Right - r.Left), int(r.Bottom - r.Top)
+}
+
+// HighWord returns the high half of a 32-bit message parameter, which is where a
+// size message carries the height and a selection message carries the flags.
+func HighWord(v uintptr) uint32 { return uint32((v >> 16) & 0xffff) }
 
 // The DrawTextW flags this program uses, named where the binding is.
 const (

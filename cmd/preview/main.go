@@ -59,14 +59,14 @@ func write(path string, size, scale int, accentHex string) error {
 		accent = theme.Accent{Known: true, Colour: raster.Hex(accentHex)}
 	}
 
-	// Both palettes in both tones. The light rendering is a real mode an operator
-	// can be in, and a sheet that showed only the dark one would not show the
-	// thing most likely to be wrong.
+	// Both tones. The light one is a real mode an operator can be in, and a sheet
+	// that showed only the dark one would not show the thing most likely to be
+	// wrong.
 	var variants []variant
 	for _, p := range theme.All(accent) {
 		variants = append(variants,
-			variant{p.Label("en") + " / dark", p.On(false)},
-			variant{p.Label("en") + " / light", p.On(true)})
+			variant{p.Label("en"), p},
+			variant{p.Label("en"), theme.On(true)})
 	}
 
 	// Three states, because an indicator that only looks right when everything

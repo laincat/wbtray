@@ -375,20 +375,15 @@ func (a *App) previewFor(style string, th theme.Palette) *raster.Canvas {
 	})
 }
 
-// paletteItems is the colour list: which palette, and when it is worn.
+// paletteItems is the tone list.
 //
-// Two questions in one submenu, which is right, because they are the same
-// question asked twice. The palette is what the marks are drawn with; the
-// appearance is which way round it is turned, since an ink that reads on a dark
-// taskbar is invisible on a light one.
+// There used to be a palette choice above this — one that wore the Windows accent
+// and one that did not — and it is gone, because wearing the accent made every mark
+// in the tray the operator's chosen colour whatever that colour was. What is left
+// is the question that was always underneath it: which way round the design is
+// drawn, since an ink that reads on a dark taskbar is invisible on a light one.
 func (a *App) paletteItems(cfg config.Config, lang string) []traymenu.Item {
-	all := theme.All(a.Accent())
-	out := make([]traymenu.Item, 0, len(all)+len(theme.Appearances)+1)
-	for i, p := range all {
-		out = append(out, traymenu.Radio(uint32(IDThemeBase+i), p.Label(lang),
-			i18n.T(lang, "hint.palette_pick", p.Label(lang)), cfg.Theme == p.Name))
-	}
-	out = append(out, traymenu.Separator())
+	out := make([]traymenu.Item, 0, len(theme.Appearances))
 	for i, ap := range theme.Appearances {
 		out = append(out, traymenu.Radio(uint32(IDAppearanceBase+i),
 			theme.AppearanceLabel(ap, lang), i18n.T(lang, "hint.appearance"),

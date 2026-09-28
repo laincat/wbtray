@@ -51,31 +51,29 @@ func TestIconSheet(t *testing.T) {
 		image.Point{}, draw.Src)
 
 	y := label
-	for _, p := range theme.All(theme.Accent{}) {
-		for _, light := range []bool{false, true} {
-			pal := p.On(light)
-			head := raster.New(width-pad*2, label-6)
-			head.Text(0, 4, 1.7, pal.Label("en")+" / dark="+boolText(!light),
-				raster.RGBA{R: 0x18, G: 0x1b, B: 0x22, A: 0xff})
-			pasteIcon(img, head, pad, y)
-			y += label
-			for _, style := range styles {
-				x := pad
-				for _, size := range sizes {
-					icon := Draw(View{
-						Size: size, Style: style, Metric: config.MetricRequests,
-						Lang: "en", Palette: pal, Snap: snap,
-					}).Scale(size*scale, size*scale)
-					pasteIcon(img, icon, x+pad, y+pad)
-					x += cell
-				}
-				name := raster.New(cell-pad, cell-label)
-				name.Text(0, 4, 1.5, style, raster.RGBA{R: 0x18, G: 0x1b, B: 0x22, A: 0xff})
-				pasteIcon(img, name, 1, y)
-				y += cell
+	for _, light := range []bool{false, true} {
+		pal := theme.On(light)
+		head := raster.New(width-pad*2, label-6)
+		head.Text(0, 4, 1.7, pal.Label("en")+" / dark="+boolText(!light),
+			raster.RGBA{R: 0x18, G: 0x1b, B: 0x22, A: 0xff})
+		pasteIcon(img, head, pad, y)
+		y += label
+		for _, style := range styles {
+			x := pad
+			for _, size := range sizes {
+				icon := Draw(View{
+					Size: size, Style: style, Metric: config.MetricRequests,
+					Lang: "en", Palette: pal, Snap: snap,
+				}).Scale(size*scale, size*scale)
+				pasteIcon(img, icon, x+pad, y+pad)
+				x += cell
 			}
-			y += pad
+			name := raster.New(cell-pad, cell-label)
+			name.Text(0, 4, 1.5, style, raster.RGBA{R: 0x18, G: 0x1b, B: 0x22, A: 0xff})
+			pasteIcon(img, name, 1, y)
+			y += cell
 		}
+		y += pad
 	}
 
 	path := filepath.Join(dir, "icon-styles.png")

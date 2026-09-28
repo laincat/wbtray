@@ -1,19 +1,21 @@
-// Package theme holds the palettes the tray draws with.
+// Package theme holds the palette the tray draws with.
 //
-// There are two, and they differ by one question: does the tray wear the colour
-// Windows is using, or none at all?
+// It is one design in two tones, the way Codex's own interface is: the marks are
+// neutral — near-black ink on white, near-white ink on near-black — and colour is
+// reserved for the two or three states that have to be noticed. That is the whole
+// idea, and it is worth stating because the obvious alternative is the one this
+// replaced: a palette that wears the operator's Windows accent looks like it
+// belongs beside the system's own icons, until the accent is a muddy brown or a
+// dark olive, at which point every mark in the tray is a muddy brown or a dark
+// olive and no amount of contrast correction can make it pleasant.
 //
-// A palette names roles, not pixels. It says which colour "healthy" is and which
-// colour "failed" is, and every part of the tray — the icon, the status row, the
-// account pips — asks for a role. That is what stops a second, unrelated set of
-// colours from growing beside it, which is what happened when the account rows
-// carried four hex values hard-coded in the menu file that no palette had ever
-// heard of.
+// So there is no accent-following palette and no colour arithmetic. Both tones are
+// written down, taken from the interface this is meant to sit beside, and each is
+// legible by construction rather than by adjustment.
 //
-// Nothing here draws a background. The tray's marks sit directly on the taskbar,
-// the way the system's own icons do, so a palette is only ever a set of inks. The
-// plate an earlier version drew behind every icon is gone: it read as a black
-// square on a dark taskbar, which is the opposite of what a tray icon is for.
+// Nothing here draws a background for the icon. The tray's marks sit directly on
+// the taskbar; the surfaces below are for the window, which is a surface of its
+// own and needs one.
 package theme
 
 import (
@@ -24,10 +26,6 @@ import (
 )
 
 // Appearance is the follow-the-system setting.
-//
-// It decides which way round a palette is drawn, because a mark that reads on a
-// dark taskbar is invisible on a light one. "Follow Windows" is worth having for
-// that reason alone.
 type Appearance string
 
 // The appearance modes.
@@ -77,128 +75,110 @@ func AppearanceLabel(a Appearance, lang string) string {
 	}
 }
 
-// Accent is the system's own accent colour, as the tray read it.
+// Accent is kept for the front end, which reads the Windows accent at startup.
 //
-// It is a value rather than something this package looks up, because reading it
-// is a Windows registry call and this package decides what a palette looks like,
-// not how the operating system is asked.
+// Nothing in this package uses it any more. It is here because removing the call
+// would mean the registry read, the winapi function and its test all had to go at
+// once, and the honest state of affairs is that the tray no longer follows the
+// system accent. The type stays until that read is removed on its own.
 type Accent struct {
-	// Colour is the accent Windows is using. It is ignored when Known is false.
 	Colour raster.RGBA
-	// Known is false when the setting could not be read, which happens on a build
-	// that predates it. The palette then falls back to the accent Windows 11
-	// ships with rather than to something invented here.
-	Known bool
+	Known  bool
 }
 
-// DefaultAccent is the accent Windows 11 uses when nothing else has been chosen.
-var DefaultAccent = raster.Hex("#4cc2ff")
-
-// colour is the accent to draw with, which is never zero.
-func (a Accent) colour() raster.RGBA {
-	if !a.Known || a.Colour.A == 0 {
-		return DefaultAccent
-	}
-	out := a.Colour
-	out.A = 0xff
-	return out
-}
-
-// Names of the palettes, as written to the configuration file.
-const (
-	// SystemName is the palette that wears the system accent.
-	SystemName = "system"
-	// MonoName is the neutral palette: no hue at all except where a state needs
-	// one.
-	MonoName = "mono"
-)
-
-// Palette is one complete set of inks.
+// Name is the palette identifier written to the configuration.
 //
-// It carries no background, because the tray draws none: every colour here is
-// meant to be read against the taskbar behind it.
+// There is one palette now. The names of the retired ones are still accepted, and
+// map here, so a configuration written by an earlier build opens.
+const Name = "codex"
+
+// Palette is one tone of the design: its surfaces, its text, and the four colours
+// a state can be.
+//
+// The field names are the ones the interface this follows uses, because they are
+// the names its own designers agreed on and inventing a second vocabulary for the
+// same roles is how two parts of a program end up disagreeing about what "muted"
+// means.
 type Palette struct {
 	// Name is the stable identifier written to the configuration.
 	Name string
+	// Light records which tone this is, which is what a caller asks when it has to
+	// choose a colour it cannot get from the palette.
+	Light bool
 
-	// Ink is the primary mark; InkDim is the quieter one, for the part of a mark
-	// that is context rather than the reading.
+	// Surfaces, from the furthest back to the closest: the window, its sidebar,
+	// a card, a control inside a card, and the two hairline strengths.
+	BG         raster.RGBA
+	Rail       raster.RGBA
+	Surface    raster.RGBA
+	Raised     raster.RGBA
+	RaisedHi   raster.RGBA
+	Border     raster.RGBA
+	BorderSoft raster.RGBA
+
+	// Text, at three levels: the reading, the label, and the hint.
+	Text  raster.RGBA
+	Muted raster.RGBA
+	Faint raster.RGBA
+
+	// The marks. Ink and InkDim are the tray icon's own names for the two text
+	// levels — a glyph on a taskbar is text at heart — and they are set from the
+	// same source so the icon and the window cannot drift apart.
 	Ink    raster.RGBA
 	InkDim raster.RGBA
 
-	// Accent is the colour of a healthy reading and of anything the operator can
-	// act on. In the system palette it is Windows' own accent, adjusted only as
-	// far as legibility requires; in the monochrome one it is the ink.
-	Accent raster.RGBA
+	// Accent is the colour of anything the operator can act on. In this design it
+	// is neutral, which is what keeps the tray quiet beside the system's icons.
+	Accent    raster.RGBA
+	AccentInk raster.RGBA
+	AccentHi  raster.RGBA
 
-	// State is what a mark turns when something is wrong. OK is separate from
-	// Accent so the monochrome palette can answer "healthy" with ink and still
-	// keep two colours in reserve for the states that need to be noticed.
+	// The four states. OK, Warn and Bad are the tray icon's names for green, amber
+	// and red; Blue is for the one state that is busy rather than broken.
 	OK   raster.RGBA
 	Warn raster.RGBA
 	Bad  raster.RGBA
-
-	// Light records which way round the palette was built, which is what a mark
-	// consults when it needs to know how much contrast it is working with.
-	Light bool
-
-	// base is the dark rendering this one was turned from.
-	//
-	// It exists so On is reversible. The conversion has to move colours along
-	// their own lightness to reach the contrast threshold, and that move cannot
-	// be undone from the result alone: two different dark accents can land on the
-	// same light one. Keeping the source makes the light rendering a view of the
-	// dark palette rather than a second palette that has to be maintained in
-	// step — which is what stops the two drifting apart, and what lets a caller
-	// toggle the setting without losing the original accent.
-	base *Palette
+	Blue raster.RGBA
+	// Green is the name this design's own stylesheet gives the healthy colour. It
+	// is kept beside OK rather than instead of it because the icon asks for OK and
+	// the window asks for Green, and they are the same value.
+	Green raster.RGBA
 }
 
 // All returns every palette, in menu order.
-func All(accent Accent) []Palette {
-	return []Palette{System(accent), Mono()}
-}
+//
+// One entry, because the design is one thing. The list remains because the menu and
+// the preview sheet both iterate it, and because a second palette is the obvious
+// next thing to want.
+func All(accent Accent) []Palette { return []Palette{Dark(), Light()} }
 
-// Names returns every palette name, in menu order.
-func Names() []string {
-	return []string{SystemName, MonoName}
-}
+// Names returns every palette name.
+func Names() []string { return []string{Name} }
 
-// ByName returns a palette, falling back to the default one when the name is not
-// known.
-func ByName(name string, accent Accent) Palette {
-	if Normalize(name) == MonoName {
-		return Mono()
-	}
-	return System(accent)
-}
+// ByName returns the palette for a configured name, ignoring which tone was asked
+// for: the tone is the appearance's business, not the name's.
+func ByName(name string, accent Accent) Palette { return Dark() }
 
-// Normalize maps a configuration value onto a supported palette name, so a file
-// written when there were other palettes still opens on one of these two.
-func Normalize(name string) string {
-	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "mono", "monochrome", "plain", "grey", "gray", "white", "light":
-		return MonoName
-	default:
-		// Everything else — including the retired neon, panel, amber and candy
-		// palettes — lands on the one that follows the system.
-		return SystemName
-	}
-}
+// Normalize maps a configuration value onto the palette that exists.
+//
+// Every retired name lands here, including "system": the palette that wore the
+// operator's accent is gone, and a configuration asking for it gets this design
+// rather than a broken one.
+func Normalize(name string) string { return Name }
 
 // Label is the palette's name in the menu's language.
 func (p Palette) Label(lang string) string {
 	zh := lang == "zh"
-	if p.Name == MonoName {
+	if p.Light {
 		if zh {
-			return "单色"
+			return "亮色"
 		}
-		return "Monochrome"
+		return "Light"
 	}
 	if zh {
-		return "跟随系统"
+		return "暗色"
 	}
-	return "System"
+	return "Dark"
 }
 
 // State returns the colour a health reading is drawn in.
@@ -213,9 +193,21 @@ func (p Palette) State(s int) raster.RGBA {
 	}
 }
 
-// Resolve picks the palette to draw with and turns it the right way round.
+// Taskbar is the surface the icon is read against.
+//
+// It is stated rather than sampled, because the icon's legibility is a decision
+// about a known background and sampling would make it depend on whichever window
+// happened to be open behind the notification area. A mark that has to knock a hole
+// in itself — the mascot's face — draws this.
+func (p Palette) Taskbar() raster.RGBA {
+	if p.Light {
+		return raster.Hex("#f3f3f3")
+	}
+	return raster.Hex("#1f1f1f")
+}
+
+// Resolve picks the tone to draw with.
 func Resolve(name string, appearance Appearance, systemDark bool, accent Accent) Palette {
-	chosen := ByName(name, accent)
 	light := false
 	switch appearance {
 	case AlwaysLight:
@@ -225,179 +217,102 @@ func Resolve(name string, appearance Appearance, systemDark bool, accent Accent)
 	default:
 		light = !systemDark
 	}
-	return chosen.On(light)
+	return On(light)
 }
 
-// System is the palette that wears the system's own accent.
-//
-// The inks are the ones Windows 11 uses for its own glyphs, so a mark drawn in
-// them reads as part of the shell rather than as an application's badge.
-func System(accent Accent) Palette {
-	ac := accent.colour()
-	p := Palette{
-		Name:   SystemName,
-		Ink:    raster.Hex("#ffffff"),
-		InkDim: raster.Hex("#b9c2cf"),
-		Accent: ac,
-		OK:     ac,
-		Warn:   raster.Hex("#ffc44d"),
-		Bad:    raster.Hex("#ff6b6b"),
+// On returns the palette for a tone.
+func On(light bool) Palette {
+	if light {
+		return Light()
 	}
-	// The accent is the operator's choice, so it may well be a colour that
-	// disappears against the taskbar — a dark olive reads at a little over two to
-	// one against the dark surface, which is below the three a shape needs. It is
-	// adjusted rather than replaced: the hue is the whole point of it, so it is
-	// moved along its own lightness until it can be seen.
-	p.Accent = ensureContrast(ac, taskbarDark, minContrast)
-	p.OK = p.Accent
+	return Dark()
+}
+
+// Dark is the dark tone.
+//
+// The greys are a warm-neutral ramp from a near-black rail to a raised control,
+// and the ink is near-white rather than white: pure white on a near-black surface
+// glares at the small sizes a tray uses.
+//
+// The four state colours are light and desaturated, because they are read as small
+// marks on a dark background where a saturated colour at full strength reads as a
+// warning when it is only a reading.
+func Dark() Palette {
+	p := Palette{
+		Name:       Name,
+		Light:      false,
+		BG:         raster.Hex("#212121"),
+		Rail:       raster.Hex("#171717"),
+		Surface:    raster.Hex("#262626"),
+		Raised:     raster.Hex("#303030"),
+		RaisedHi:   raster.Hex("#3a3a3a"),
+		Border:     raster.Hex("#3d3d3d"),
+		BorderSoft: raster.Hex("#333333"),
+		Text:       raster.Hex("#ececec"),
+		Muted:      raster.Hex("#a6a6a6"),
+		Faint:      raster.Hex("#9a9a9a"),
+		Accent:     raster.Hex("#ececec"),
+		AccentInk:  raster.Hex("#0d0d0d"),
+		AccentHi:   raster.Hex("#ffffff"),
+		Green:      raster.Hex("#4ecb9d"),
+		Warn:       raster.Hex("#fbbf24"),
+		Bad:        raster.Hex("#f87171"),
+		Blue:       raster.Hex("#7aa2ff"),
+	}
+	p.Ink, p.InkDim = p.Text, p.Muted
+	p.OK = p.Green
 	return p
 }
 
-// Mono is the neutral palette: white ink, and nothing else.
-//
-// A healthy reading is drawn in the ink rather than in a colour, which is what
-// makes it monochrome. The two states that have to be noticed keep a hue;
-// everything else is the absence of one.
-//
-// It is the one to pick when the operator's accent clashes with the health
-// colours, or when the tray should be present without drawing the eye.
-func Mono() Palette {
-	return Palette{
-		Name:   MonoName,
-		Ink:    raster.Hex("#f5f7fa"),
-		InkDim: raster.Hex("#9aa3b2"),
-		Accent: raster.Hex("#f5f7fa"),
-		OK:     raster.Hex("#f5f7fa"),
-		Warn:   raster.Hex("#ffc44d"),
-		Bad:    raster.Hex("#ff6b6b"),
+// Light is the light tone: the same design the other way round, written out rather
+// than derived. The greys are cool-neutral and the state colours are dark and
+// saturated, which is what makes them read on white.
+func Light() Palette {
+	p := Palette{
+		Name:       Name,
+		Light:      true,
+		BG:         raster.Hex("#ffffff"),
+		Rail:       raster.Hex("#f9f9f9"),
+		Surface:    raster.Hex("#ffffff"),
+		Raised:     raster.Hex("#f4f4f4"),
+		RaisedHi:   raster.Hex("#ececec"),
+		Border:     raster.Hex("#e6e6e6"),
+		BorderSoft: raster.Hex("#f0f0f0"),
+		Text:       raster.Hex("#0d0d0d"),
+		Muted:      raster.Hex("#6e6e6e"),
+		Faint:      raster.Hex("#707070"),
+		Accent:     raster.Hex("#0d0d0d"),
+		AccentInk:  raster.Hex("#ffffff"),
+		AccentHi:   raster.Hex("#3d3d3d"),
+		Green:      raster.Hex("#0a7d5c"),
+		Warn:       raster.Hex("#9a4a08"),
+		Bad:        raster.Hex("#b91c1c"),
+		Blue:       raster.Hex("#1d4ed8"),
 	}
-}
-
-// On turns the palette the right way round for a taskbar of the given tone.
-//
-// It swaps the two things that carry contrast against the taskbar — the ink and
-// the dim ink — and leaves the hues alone, so the mark is recognisably the same
-// palette rather than a different one. The state colours are moved along their
-// own lightness rather than inverted: a pale green on a white taskbar is
-// invisible, and a "healthy" state that cannot be seen is the one failure this
-// design cannot tolerate.
-func (p Palette) On(light bool) Palette {
-	if p.Light == light {
-		return p
-	}
-	// Turning a light rendering back to dark returns the palette it came from,
-	// rather than trying to reconstruct it.
-	if !light && p.base != nil {
-		return *p.base
-	}
-	out := p
-	out.Light = light
-	if !light {
-		return out
-	}
-	// Remember the dark rendering so the turn can be undone exactly.
-	dark := p
-	out.base = &dark
-	out.Ink = raster.Hex("#101418")
-	out.InkDim = raster.Hex("#5b6572")
-	if p.Name == MonoName {
-		// The monochrome palette's accent and healthy colour are its ink, so they
-		// follow it rather than going through the adjustment below.
-		out.Accent = out.Ink
-		out.OK = out.Ink
-		out.Warn = ensureContrast(p.Warn, taskbarLight, minContrast)
-		out.Bad = ensureContrast(p.Bad, taskbarLight, minContrast)
-		return out
-	}
-	out.Accent = ensureContrast(p.Accent, taskbarLight, minContrast)
-	out.OK = out.Accent
-	out.Warn = ensureContrast(p.Warn, taskbarLight, minContrast)
-	out.Bad = ensureContrast(p.Bad, taskbarLight, minContrast)
-	return out
-}
-
-// IsLight reports whether the palette has been turned round for a light taskbar.
-func (p Palette) IsLight() bool { return p.Light }
-
-// The two taskbar tones, as the colours Windows 11 draws them.
-//
-// They are stated here rather than sampled from the screen, because a palette is
-// a decision about contrast and a decision needs to be made against a known
-// value. Sampling would make the icon's colours depend on what window happened
-// to be open behind the taskbar.
-var (
-	taskbarDark  = raster.Hex("#1f1f1f")
-	taskbarLight = raster.Hex("#f3f3f3")
-)
-
-// minContrast is the contrast ratio a mark has to reach against the taskbar.
-//
-// Three to one is the threshold the accessibility guidance sets for a graphical
-// object, and it is the right bar here: below it a shape stops being a shape and
-// becomes a smudge, which for a status icon means the reading is not merely
-// unattractive but absent.
-const minContrast = 3.0
-
-// Taskbar returns the tone the palette expects to be read against, which is what
-// a caller measures a colour against when it needs to check its own contrast.
-func (p Palette) Taskbar() raster.RGBA {
-	if p.Light {
-		return taskbarLight
-	}
-	return taskbarDark
-}
-
-// ensureContrast moves a colour along its own lightness until it clears a
-// contrast ratio against a background, keeping the hue where it can.
-//
-// It moves toward white on a dark background and toward black on a light one,
-// which is the direction that increases contrast while disturbing the hue as
-// little as possible.
-func ensureContrast(c, bg raster.RGBA, want float64) raster.RGBA {
-	if Contrast(c, bg) >= want {
-		return c
-	}
-	toward := raster.Hex("#ffffff")
-	if Luminance(bg) > 0.5 {
-		toward = raster.Hex("#000000")
-	}
-	// A dozen steps is finer than the eye can follow and costs nothing: this runs
-	// when a palette is built, not when an icon is drawn.
-	best := c
-	bestRatio := Contrast(c, bg)
-	for i := 1; i <= 12; i++ {
-		mixed := c.Mix(toward, float64(i)/12)
-		mixed.A = c.A
-		ratio := Contrast(mixed, bg)
-		if ratio > bestRatio {
-			best, bestRatio = mixed, ratio
-		}
-		if ratio >= want {
-			return mixed
-		}
-	}
-	return best
+	p.Ink, p.InkDim = p.Text, p.Muted
+	p.OK = p.Green
+	return p
 }
 
 // Contrast is the WCAG contrast ratio between two colours, from 1 to 21.
 //
-// It is computed on the colours as drawn, ignoring alpha: a mark is meant to be
-// opaque, and a translucent one has no fixed contrast to state.
+// It is still exported and still tested, because both tones make a claim the tests
+// check: every ink in them is legible against the surface it is drawn on. The claim
+// is now about two written-down palettes rather than about an adjustment applied at
+// runtime, but it is the same claim.
 func Contrast(a, b raster.RGBA) float64 {
-	la, lb := relativeLuminance(a), relativeLuminance(b)
+	la, lb := Luminance(a), Luminance(b)
 	if la < lb {
 		la, lb = lb, la
 	}
 	return (la + 0.05) / (lb + 0.05)
 }
 
-// Luminance is the perceptual luminance of a colour, from 0 to 1. It is exported
-// because the menu picks its text colour by it.
-func Luminance(c raster.RGBA) float64 { return relativeLuminance(c) }
-
-// relativeLuminance is the WCAG definition: the channels are linearised before
-// they are weighted, because the eye does not see brightness proportionally.
-func relativeLuminance(c raster.RGBA) float64 {
+// Luminance is the relative luminance of a colour, from 0 to 1.
+//
+// The definition is the WCAG one: the channels are linearised before they are
+// weighted, because the eye does not see brightness proportionally.
+func Luminance(c raster.RGBA) float64 {
 	f := func(v uint8) float64 {
 		s := float64(v) / 255
 		if s <= 0.03928 {

@@ -345,34 +345,25 @@ func (a *App) Appearance() string {
 	return a.cfg.Appearance
 }
 
-// Accent is the accent colour Windows is using, as the front end reports it.
-func (a *App) Accent() theme.Accent {
-	a.mu.Lock()
-	fn := a.opts.Accent
-	a.mu.Unlock()
-	if fn == nil {
-		return theme.Accent{}
-	}
-	return fn()
-}
-
-// Theme resolves the palette to draw with right now, which is where "follow
-// Windows" turns into a concrete set of colours.
+// Theme resolves the tone to draw with right now, which is where "follow Windows"
+// turns into a concrete set of colours.
+//
+// The Windows accent is deliberately not consulted. The palette this replaced wore
+// it, and the effect was that the tray's marks were the operator's chosen colour
+// whatever that colour happened to be — a muddy brown accent gave a muddy brown
+// tray. Colour here is reserved for the states that have to be noticed, and the
+// accent is ink.
 func (a *App) Theme() theme.Palette {
 	a.mu.Lock()
-	name, appearance := a.cfg.Theme, a.cfg.Appearance
-	darkFn, accentFn := a.opts.SystemDark, a.opts.Accent
+	appearance := a.cfg.Appearance
+	darkFn := a.opts.SystemDark
 	a.mu.Unlock()
 
 	systemDark := false
 	if darkFn != nil {
 		systemDark = darkFn()
 	}
-	var accent theme.Accent
-	if accentFn != nil {
-		accent = accentFn()
-	}
-	return theme.Resolve(name, theme.ParseAppearance(appearance), systemDark, accent)
+	return theme.Resolve(a.cfg.Theme, theme.ParseAppearance(appearance), systemDark, theme.Accent{})
 }
 
 // SetShowConsole remembers whether the gateway should be started with a visible

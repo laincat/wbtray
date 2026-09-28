@@ -28,25 +28,6 @@ const (
 // already in the buffer.
 const transparentBkMode = 1
 
-// logFont mirrors LOGFONTW. Only the fields that are set are named; the rest are
-// zero, which is what makes a font request a request rather than a description.
-type logFont struct {
-	Height         int32
-	Width          int32
-	Escapement     int32
-	Orientation    int32
-	Weight         int32
-	Italic         byte
-	Underline      byte
-	StrikeOut      byte
-	CharSet        byte
-	OutPrecision   byte
-	ClipPrecision  byte
-	Quality        byte
-	PitchAndFamily byte
-	FaceName       [32]uint16
-}
-
 // TextItem is one string to draw, in the units the layout uses.
 type TextItem struct {
 	S      string
@@ -139,7 +120,7 @@ func (t *TextRenderer) font(size float64, weight int, dpi float64) uintptr {
 	if f, ok := t.fonts[key]; ok {
 		return f
 	}
-	lf := logFont{
+	lf := LogFont{
 		// A negative height asks for a font with that character height rather than
 		// that cell height, which is what makes two sizes one step apart look one
 		// step apart.

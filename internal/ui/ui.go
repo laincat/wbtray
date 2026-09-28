@@ -154,26 +154,14 @@ type View struct {
 // window is a surface and needs a background, and adding one here rather than to
 // Palette keeps the palettes about marks, which is what both the icon and the menu
 // need them for.
-func surface(p theme.Palette) raster.RGBA {
-	if p.IsLight() {
-		return raster.Hex("#f4f4f7")
-	}
-	return raster.Hex("#1b1b1f")
-}
+// The window's surfaces come from the palette rather than from a second table: the
+// tones were chosen as a set, and a surface invented here would be one more colour
+// to keep in step.
+func surface(p theme.Palette) raster.RGBA { return p.BG }
 
-func card(p theme.Palette) raster.RGBA {
-	if p.IsLight() {
-		return raster.Hex("#ffffff")
-	}
-	return raster.Hex("#26262b")
-}
+func card(p theme.Palette) raster.RGBA { return p.Surface }
 
-func hairline(p theme.Palette) raster.RGBA {
-	if p.IsLight() {
-		return raster.Hex("#e2e2e9")
-	}
-	return raster.Hex("#34343b")
-}
+func hairline(p theme.Palette) raster.RGBA { return p.Border }
 
 // add appends a piece of text to the frame.
 func (l *Layout) add(s string, x, y, size float64, w Weight, col raster.RGBA) {

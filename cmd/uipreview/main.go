@@ -20,7 +20,6 @@ import (
 	"strings"
 	"time"
 
-	"wbtray/internal/raster"
 	"wbtray/internal/status"
 	"wbtray/internal/theme"
 	"wbtray/internal/ui"
@@ -30,8 +29,6 @@ import (
 func main() {
 	out := flag.String("out", "window.png", "where to write the sheet")
 	size := flag.String("size", "1180x760", "window size as WxH")
-	accentHex := flag.String("accent", "", "accent colour as #rrggbb")
-	mono := flag.Bool("mono", false, "draw the monochrome palette")
 	light := flag.Bool("light", false, "draw the light tone")
 	dpi := flag.Float64("dpi", 1, "scale factor to render at")
 	flag.Parse()
@@ -42,15 +39,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	accent := theme.Accent{}
-	if *accentHex != "" {
-		accent = theme.Accent{Known: true, Colour: raster.Hex(*accentHex)}
-	}
-	pal := theme.System(accent)
-	if *mono {
-		pal = theme.Mono()
-	}
-	pal = pal.On(*light)
+	pal := theme.On(*light)
 
 	layout := ui.Build(ui.View{
 		W: w, H: h,

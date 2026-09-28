@@ -22,10 +22,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"wbtray/internal/config"
 	"wbtray/internal/iconstyle"
 	"wbtray/internal/status"
-	"wbtray/internal/theme"
 	"wbtray/internal/winres"
 )
 
@@ -57,22 +55,14 @@ func run(arch string) error {
 		return err
 	}
 
-	// The file icon is drawn in the default palette and style: it is the product's
-	// mark rather than a status reading, and a status reading baked into a file
-	// icon would be a lie by the next day.
-	// The rendered icons, keyed by size, so the encoder can pick the format each
+	// The file icon is the product's mark rather than a status reading: it is drawn
+	// once, here, and a reading baked into it would be a lie by the next day.
+	//
+	// The rendered icons are keyed by size because the encoder picks the format each
 	// size requires.
 	rendered := map[int]image.Image{}
 	for _, size := range sizes {
-		c := iconstyle.Draw(iconstyle.View{
-			Size:    size,
-			Style:   config.StyleCat,
-			Metric:  config.MetricAccounts,
-			Lang:    "en",
-			Palette: theme.System(theme.Accent{}),
-			Snap:    sampleState(),
-		})
-		rendered[size] = c.Image()
+		rendered[size] = iconstyle.DrawAppMark(size).Image()
 	}
 	// The encoder decides PNG or DIB per size, which is a rule of the format
 	// rather than a choice: an icon whose smaller images are PNG is not rejected,

@@ -34,6 +34,21 @@ func run(cfg config.Config, cfgPath string) error {
 	_ = gw
 
 	icon := tray.New("wbtray", tray.Callbacks{})
+	// The window is created here, on the thread that will pump its messages, and
+	// hidden until it is asked for. A tray's main window is opened and dismissed
+	// many times per session, so it is built once and its lifetime is the tray's.
+	win, err := tray.NewWindow(renderIcon(a))
+	if err != nil {
+		// A window that cannot be created is not a reason to refuse to run: the
+		// tray is the program and the window is a convenience. The menu still opens
+		// the console in the browser, which is the fallback the panel row has always
+		// had.
+		log.Printf("window: %v", err)
+	}
+	if win != nil {
+		win.SetSources(a.Snapshot, a.Theme)
+		defer win.Close()
+	}
 	// The renamed build an earlier self-update left behind is removed here, which
 	// is the first moment at which nothing is holding it.
 	install.CleanUpPrevious()
@@ -63,8 +78,18 @@ func run(cfg config.Config, cfgPath string) error {
 	})
 	icon.SetCallbacks(tray.Callbacks{
 		Menu:   func() []traymenu.Item { return a.Menu() },
-		Select: func(ev traymenu.Event) { handleCommand(a, lc, ev) },
-		Click:  func() { _ = openURL(a.PanelClient().PanelURL()) },
+		Select: func(ev traymenu.Event) { handleCommand(a, lc, win, ev) },
+		// A left click opens the window, the way the tray beside it does: a
+		// single window is the product's main surface, and the console in a
+		// browser is one row away in the menu for the operations the window does
+		// not carry.
+		Click: func() {
+			if win != nil {
+				win.Toggle()
+				return
+			}
+			_ = openURL(a.PanelClient().PanelURL())
+		},
 		// The tray's own timer runs every second and only re-reads the tooltip.
 		// Polling the gateway from here as well would ignore the configured
 		// interval entirely and query the panel once a second.
@@ -97,9 +122,9 @@ func run(cfg config.Config, cfgPath string) error {
 		bootstrapGateway(a, lc)
 	}()
 
-	err := icon.Run()
+	runErr := icon.Run()
 	once.Do(func() { close(stop) })
-	return err
+	return runErr
 }
 
 // startTicker refreshes on the configured interval.
@@ -141,7 +166,7 @@ func renderIconSized(a *app.App, size int) *raster.Canvas {
 // The lifecycle travels with the application rather than being looked up, so the
 // commands that touch the gateway's installation have the layout and the release
 // state that belong to this run.
-func handleCommand(a *app.App, lc *lifecycle, ev traymenu.Event) {
+func handleCommand(a *app.App, lc *lifecycle, win *tray.Window, ev traymenu.Event) {
 	switch {
 	case ev.ID >= app.IDStyleBase && ev.ID < app.IDMetricBase:
 		if name := styleNameForID(ev.ID); name != "" {
@@ -171,6 +196,12 @@ func handleCommand(a *app.App, lc *lifecycle, ev traymenu.Event) {
 		go runTask(a, task)
 		return
 	case ev.ID == app.IDOpenPanel:
+		// The window is the panel now, and the browser is the fallback for a
+		// machine where it could not be created.
+		if win != nil {
+			win.Show()
+			return
+		}
 		_ = openURL(a.PanelClient().PanelURL())
 		return
 	case ev.ID == app.IDCopyURL:

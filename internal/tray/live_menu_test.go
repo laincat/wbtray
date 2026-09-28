@@ -39,7 +39,7 @@ func (s *stubGateway) SetAutoStart(on bool) error { s.autoStart = on; return nil
 
 // pip is the colour the measurement tests give a row. Its value does not matter to a
 // width; only whether a row has one.
-var pip = theme.System(theme.Accent{}).OK
+var pip = theme.Dark().OK
 
 // TestTopLevelMenuShape is the shape of the whole menu.
 //
