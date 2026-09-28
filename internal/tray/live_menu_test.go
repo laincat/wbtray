@@ -39,13 +39,13 @@ func (s *stubGateway) SetAutoStart(on bool) error { s.autoStart = on; return nil
 
 // pip is the colour the measurement tests give a row. Its value does not matter to a
 // width; only whether a row has one.
-var pip = theme.Neon().OK
+var pip = theme.System(theme.Accent{}).OK
 
-// TestTopLevelMenuIsNineRows is the shape of the whole menu.
+// TestTopLevelMenuIsEightRows is the shape of the whole menu.
 //
-// The top level is the state, six things to do, and the row that ends it — nine\r\n// rows in four blocks. The count is asserted rather than described because the way a
+// The top level is the state, five things to do, and the row that ends it — eight\r\n// rows in four blocks. The count is asserted rather than described because the way a
 // menu grows back is one reasonable addition at a time.
-func TestTopLevelMenuIsNineRows(t *testing.T) {
+func TestTopLevelMenuIsEightRows(t *testing.T) {
 	server := newFakePanel(t)
 	defer server.Close()
 
@@ -64,8 +64,8 @@ func TestTopLevelMenuIsNineRows(t *testing.T) {
 		}
 		rows++
 	}
-	if rows != 9 {
-		t.Errorf("the top level has %d rows, want 9:\n%s", rows, describe(a.Menu()))
+	if rows != 8 {
+		t.Errorf("the top level has %d rows, want 8:\n%s", rows, describe(a.Menu()))
 	}
 	if separators != 3 {
 		t.Errorf("the top level has %d separators, want 3", separators)

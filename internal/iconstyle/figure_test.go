@@ -27,7 +27,7 @@ func bigPool() status.Snapshot {
 
 // testView is a view for one style, metric and size.
 func testView(style, metric string, size int, snap status.Snapshot) View {
-	return View{Size: size, Style: style, Metric: metric, Lang: "en", Theme: theme.Neon(), Snap: snap}
+	return View{Size: size, Style: style, Metric: metric, Lang: "en", Theme: theme.System(theme.Accent{}), Snap: snap}
 }
 
 // boxW and boxH are the figure box in canvas units, which is the space the
@@ -64,7 +64,7 @@ func chosenFigure(v View) string {
 // to yield a figure at every size a taskbar uses, for every theme.
 func TestTextStylesAlwaysDrawAFigure(t *testing.T) {
 	snap := bigPool()
-	for _, th := range theme.All() {
+	for _, th := range theme.All(theme.Accent{}) {
 		for _, style := range []string{config.StyleText, config.StyleBarText, config.StyleMascotText} {
 			for _, metric := range config.Metrics {
 				for _, size := range []int{16, 20, 24, 32} {
@@ -98,7 +98,7 @@ func TestTheFigureIsDrawnNotJustChosen(t *testing.T) {
 			box := float64(size * super)
 			c := raster.New(int(box), int(box))
 			x, y, w, h := figureRect(box)
-			drawFigure(c, text, x, y, w, h, theme.Neon().Ink)
+			drawFigure(c, text, x, y, w, h, theme.System(theme.Accent{}).Ink)
 			if inkCount(c) == 0 {
 				t.Errorf("%s at %d: the figure %q was chosen but drew nothing",
 					style, size, text)

@@ -106,7 +106,7 @@ func Default() Config {
 		Style:            StyleRing,
 		Metric:           MetricAccounts,
 		Lang:             "zh",
-		Theme:            "neon",
+		Theme:            "system",
 		Appearance:       "auto",
 		ShowConsole:      false,
 		ManageProcess:    true,

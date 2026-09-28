@@ -47,7 +47,6 @@ func (a *App) Menu() []traymenu.Item {
 		a.tasksRow(lang),
 		traymenu.Command(IDOpenPanel, i18n.T(lang, "menu.panel"), i18n.T(lang, "hint.panel")).
 			WithDefault(),
-		a.chartRow(lang),
 		a.otherRow(snap, paused, cfg, lang),
 		traymenu.Separator(),
 	)
@@ -268,11 +267,6 @@ func ticked(name string, on bool, hint, lang string) traymenu.Item {
 	return row
 }
 
-// chartRow opens the chart window.
-func (a *App) chartRow(lang string) traymenu.Item {
-	return traymenu.Command(IDChartWindow, i18n.T(lang, "menu.chart"), i18n.T(lang, "hint.chart"))
-}
-
 // liveItems is the block of current numbers.
 //
 // Each row is one metric, which is what makes the menu a complete readout rather than
@@ -431,7 +425,7 @@ func (a *App) previewFor(style string, th theme.Theme) *raster.Canvas {
 
 // themeItems is the palette list.
 func themeItems(a *App, cfg config.Config, lang string) []traymenu.Item {
-	all := theme.All()
+	all := theme.All(a.Accent())
 	out := make([]traymenu.Item, 0, len(all)+len(theme.Appearances)+1)
 	for i, th := range all {
 		out = append(out, traymenu.Radio(uint32(IDThemeBase+i), th.Label(lang),

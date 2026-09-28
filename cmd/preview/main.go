@@ -37,20 +37,30 @@ func main() {
 	out := flag.String("out", "preview.png", "where to write the sheet")
 	size := flag.Int("size", 32, "icon size in pixels, as the taskbar draws it")
 	scale := flag.Int("scale", 5, "magnification of each icon in the sheet")
+	accentHex := flag.String("accent", "", "accent colour as #rrggbb; the default one is used when empty")
 	flag.Parse()
 
-	if err := write(*out, *size, *scale); err != nil {
+	if err := write(*out, *size, *scale, *accentHex); err != nil {
 		fmt.Fprintf(os.Stderr, "preview: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func write(path string, size, scale int) error {
+func write(path string, size, scale int, accentHex string) error {
+	// The accent is a parameter rather than something read from the system, because this
+	// is a development tool and the point of it is to draw the icon for a chosen colour:
+	// what a palette looks like under an operator's own accent is exactly the thing worth
+	// seeing before choosing one.
+	accent := theme.Accent{}
+	if accentHex != "" {
+		accent = theme.Accent{Known: true, Colour: raster.Hex(accentHex)}
+	}
+
 	// Both appearances of both palettes: the light rendering is a real mode an
 	// operator can be in, and a sheet that showed only the dark one would not
 	// show the thing most likely to be wrong.
 	var variants []variantTheme
-	for _, th := range theme.All() {
+	for _, th := range theme.All(accent) {
 		variants = append(variants,
 			variantTheme{th.Label("en") + " / dark", th},
 			variantTheme{th.Label("en") + " / light", th.OnLight()})
@@ -148,7 +158,7 @@ func write(path string, size, scale int) error {
 
 // variantTheme is one entry of the sheet: a name for the row group and the
 // palette it draws with. The two travel together because a sheet whose labels
-// say "Neon" twice is a sheet nobody can read.
+// say "System" twice is a sheet nobody can read.
 type variantTheme struct {
 	label string
 	theme theme.Theme
@@ -274,10 +284,6 @@ func sampleSnapshot(ready, total int, credits int64, latency, tps float64, token
 	for i := range series {
 		series[i] = 40 + float64((i*37)%90)
 	}
-	labels := make([]string, 24)
-	for i := range labels {
-		labels[i] = fmt.Sprintf("2026-09-26T%02d", i)
-	}
 	return status.Snapshot{
 		Reachable: true,
 		Healthy:   ready,
@@ -292,7 +298,6 @@ func sampleSnapshot(ready, total int, credits int64, latency, tps float64, token
 			AvgLatencyMs: latency,
 			AvgTPS:       tps,
 			Series:       series,
-			Labels:       labels,
 		},
 	}
 }

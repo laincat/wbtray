@@ -108,7 +108,7 @@ func TestIconRendersForEveryStyleAndTheme(t *testing.T) {
 		t.Fatalf("the tray did not reach the fake panel: %v", snap.Err)
 	}
 
-	for _, th := range theme.All() {
+	for _, th := range theme.All(theme.Accent{}) {
 		for _, style := range config.Styles {
 			for _, metric := range config.Metrics {
 				for _, size := range []int{16, 20, 32} {
@@ -144,7 +144,7 @@ func TestIconAdaptsToHealth(t *testing.T) {
 	}
 	down := status.Snapshot{Reachable: false}
 
-	th := theme.Neon()
+	th := theme.System(theme.Accent{})
 	a := iconCanvasFor(t, healthy, th)
 	b := iconCanvasFor(t, down, th)
 	if samePixels(a, b) {

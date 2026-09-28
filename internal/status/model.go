@@ -84,7 +84,6 @@ type Usage struct {
 	// chart metric does not need another round trip.
 	Tokens  []float64
 	Latency []float64
-	Labels  []string
 }
 
 // PIDInfo is the gateway process as far as the tray can see it.

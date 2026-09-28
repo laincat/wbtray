@@ -29,7 +29,7 @@ func TestEveryStyleFitsInsideItsHalo(t *testing.T) {
 			Series: []float64{10, 90, 40, 70, 20, 95, 30, 60},
 		},
 	}
-	for _, th := range theme.All() {
+	for _, th := range theme.All(theme.Accent{}) {
 		for _, style := range config.Styles {
 			for _, size := range []int{16, 20, 24, 32, 48} {
 				// The halo is drawn first and the mark over it, so a pixel that

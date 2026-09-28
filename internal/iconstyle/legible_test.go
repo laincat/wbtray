@@ -40,14 +40,14 @@ func TestFigureLegibilitySheet(t *testing.T) {
 		pad   = 14
 	)
 	cell := sizes[len(sizes)-1]*scale + pad*2
-	img := newSheet(cell*len(sizes)+pad, cell*len(metrics)*len(styles)+pad, theme.Neon().Halo)
+	img := newSheet(cell*len(sizes)+pad, cell*len(metrics)*len(styles)+pad, theme.System(theme.Accent{}).Halo)
 
 	y := pad
 	for _, style := range styles {
 		for _, metric := range metrics {
 			x := pad
 			for _, size := range sizes {
-				v := View{Size: size, Style: style, Metric: metric, Lang: "en", Theme: theme.Neon(), Snap: snap}
+				v := View{Size: size, Style: style, Metric: metric, Lang: "en", Theme: theme.System(theme.Accent{}), Snap: snap}
 				icon := Draw(v).Scale(size*scale, size*scale)
 				pasteIcon(img, icon, x, y)
 				x += cell

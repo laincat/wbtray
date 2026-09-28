@@ -68,7 +68,7 @@ func run(arch string) error {
 			Style:  "mascot",
 			Metric: "accounts",
 			Lang:   "en",
-			Theme:  theme.Neon(),
+			Theme:  theme.System(theme.Accent{}),
 			Snap:   sampleState(),
 		})
 		rendered[size] = c.Image()

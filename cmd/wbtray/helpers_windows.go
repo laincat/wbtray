@@ -21,9 +21,6 @@ type frontEnd struct {
 // SetTooltip updates the icon's hover text.
 func (f *frontEnd) SetTooltip(text string) { f.icon.SetTooltip(text) }
 
-// RefreshWindows repaints any window that is showing live numbers.
-func (f *frontEnd) RefreshWindows() { repaintChartWindow() }
-
 // contextWithTimeout is a one-line context constructor, spelled out so the
 // imports at each call site stay readable.
 func contextWithTimeout(d time.Duration) (context.Context, context.CancelFunc) {

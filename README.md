@@ -55,10 +55,15 @@ screen is still the right number. They also drop the status pip and colour the
 figure by health instead, because four characters fill the icon and a pip would
 land on top of them.
 
-Two palettes: **Neon**, which is cyan on a dark halo, and **Monochrome**, which
-keeps colour for the two states that need it and is otherwise neutral. Both can
-be pinned or left to follow the Windows light/dark mode, which turns the mark
-inside out — dark ink on a light halo — for a light taskbar.
+Two palettes. **System**, the default, draws the mark in the accent Windows is
+using, which it reads from the system rather than choosing for itself: an icon
+sitting on the taskbar beside the system's own should be the same colour as the
+system's highlights, because two different blues on one taskbar read as one of
+them being wrong. **Monochrome** drops the hue entirely and keeps colour only for
+the two states that need to be noticed, for when the accent clashes with them.
+
+Both can be pinned or left to follow the Windows light/dark mode, which turns the
+mark inside out — dark ink on a light halo — for a light taskbar.
 
 The metric behind the shape is one of accounts ready, credits left, requests,
 tokens, average latency, tokens per second, or requests in flight, and the
@@ -81,7 +86,7 @@ Eight rows at the top level, each label two characters:
 | **Panel** | opens the console, with the API key already filled in |
 | **Gateway ▸** | the pid, start / stop / restart, the console window, the address and key to copy, autostart, and the folder and file it lives in |
 | **Tray ▸** | style, metric, palette, language, and the config file, folder and reload rows |
-| **More ▸** | the account list, the live figures, the version block, the seven maintenance actions, the chart, refresh and pause, and about |
+| **Other ▸** | the live figures, the version block, the seven maintenance actions, refresh and pause |
 | **Autostart** | whether the tray starts with Windows |
 | **Exit** | quits the tray; the gateway keeps running |
 
@@ -105,21 +110,6 @@ operator looks for them.
 
 The key row is dimmed when there is no key to copy, rather than reporting success
 at copying an empty string.
-
-## The chart window
-
-A sixteen-pixel icon can show a shape but not a reading. Double-clicking the icon
-opens a window with the same data at a size where the trend and the individual
-buckets are both legible: the hourly series, a live strip from the last minute of
-readings, and the current figures for every metric at once. Click a legend entry
-to change the metric, click the chart to switch between line, area and bars, or
-use the arrow keys.
-
-![The chart window](design/chart-default.png)
-
-The same window at the smallest size it allows:
-
-![The chart window at its minimum size](design/chart-minimum.png)
 
 ## Install
 
@@ -173,7 +163,7 @@ style = ring                       # ring | bar | spark | mascot | plain
                                    # bartext | text | mascottext
 metric = accounts                  # accounts | credits | requests | tokens |
                                    # latency | tps | queue
-theme = neon                       # neon | mono
+theme = system                     # system | mono
 appearance = auto                  # auto | dark | light
 lang = zh                          # zh | en
 

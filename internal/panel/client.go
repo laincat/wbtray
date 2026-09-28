@@ -46,20 +46,11 @@ func New(base, key string, timeout time.Duration) *Client {
 	}
 }
 
-// SetWindow sets how many hours of usage history the chart covers.
-func (c *Client) SetWindow(hours int) {
-	if hours < 1 {
-		hours = 1
-	}
-	if hours > 1440 {
-		hours = 1440
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.hours = hours
-}
-
 // Window is the usage window currently being read.
+//
+// It was settable while the chart window existed, because that window let the range be
+// changed. With the chart gone the range is fixed, so this reads the value the client
+// was built with.
 func (c *Client) Window() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -276,7 +267,6 @@ func (b *usageBody) decode(data []byte) error {
 		u.Series = append(u.Series, float64(p.Req))
 		u.Latency = append(u.Latency, p.Lat)
 		u.Tokens = append(u.Tokens, float64(p.Tok))
-		u.Labels = append(u.Labels, p.T)
 	}
 	b.into.Usage = u
 	b.into.UsageHours = b.hours

@@ -20,8 +20,6 @@ const (
 	// IDTaskBase plus the index of a task in Tasks.
 	IDTaskBase = 2500
 
-	// IDChartWindow opens the usage chart in its own window.
-	IDChartWindow = 2600
 	// IDOpenPanel opens the console in the browser.
 	IDOpenPanel = 2601
 	// IDCopyURL copies the gateway address to the clipboard.

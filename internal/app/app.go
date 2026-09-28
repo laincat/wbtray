@@ -40,6 +40,10 @@ type Options struct {
 	// SystemDark reports whether Windows is using its dark app theme, so the
 	// "follow the system" appearance can be resolved.
 	SystemDark func() bool
+	// Accent reports the accent colour Windows is using, so the tray's mark can be
+	// the same colour as the system's own highlights. A nil function means the
+	// setting could not be read, and the palette then uses the default accent.
+	Accent func() theme.Accent
 	// Quit ends the application.
 	Quit func()
 }
@@ -113,11 +117,15 @@ type App struct {
 	gatewayInstalled bool
 }
 
-// FrontEnd is what the application asks of the running tray: a tooltip, and a
-// way to be told when the numbers change.
+// FrontEnd is what the application asks of the running tray: a tooltip, and a way to
+// be told when the numbers change.
+//
+// The second half of that used to be a window that showed the readings at a size a
+// chart needs. It is gone, so the interface is the tooltip alone — and an interface
+// with one method is still worth having, because it is what keeps the application
+// from reaching into the front end for anything else.
 type FrontEnd interface {
 	SetTooltip(text string)
-	RefreshWindows()
 }
 
 // New builds the application.
@@ -329,18 +337,34 @@ func (a *App) Appearance() string {
 	return a.cfg.Appearance
 }
 
+// Accent is the accent colour Windows is using, as the front end reports it.
+func (a *App) Accent() theme.Accent {
+	a.mu.Lock()
+	fn := a.opts.Accent
+	a.mu.Unlock()
+	if fn == nil {
+		return theme.Accent{}
+	}
+	return fn()
+}
+
 // Theme resolves the palette to draw with right now, which is where "follow
 // Windows" turns into a concrete set of colours.
 func (a *App) Theme() theme.Theme {
 	a.mu.Lock()
 	name, appearance := a.cfg.Theme, a.cfg.Appearance
-	fn := a.opts.SystemDark
+	darkFn, accentFn := a.opts.SystemDark, a.opts.Accent
 	a.mu.Unlock()
+
 	systemDark := false
-	if fn != nil {
-		systemDark = fn()
+	if darkFn != nil {
+		systemDark = darkFn()
 	}
-	return theme.Resolve(name, theme.ParseAppearance(appearance), systemDark)
+	var accent theme.Accent
+	if accentFn != nil {
+		accent = accentFn()
+	}
+	return theme.Resolve(name, theme.ParseAppearance(appearance), systemDark, accent)
 }
 
 // SetShowConsole remembers whether the gateway should be started with a visible

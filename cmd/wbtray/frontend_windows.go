@@ -58,13 +58,13 @@ func run(cfg config.Config, cfgPath string) error {
 			_ = lc.layout.RecordGatewayVersion(v)
 		},
 		SystemDark: winapi.SystemDark,
+		Accent:     systemAccent,
 		Quit:       func() { once.Do(func() { close(stop) }); icon.Quit() },
 	})
 	icon.SetCallbacks(tray.Callbacks{
-		Menu:        func() []traymenu.Item { return a.Menu() },
-		Select:      func(ev traymenu.Event) { handleCommand(a, lc, ev) },
-		Click:       func() { _ = openURL(a.PanelClient().PanelURL()) },
-		DoubleClick: func() { openChartWindow(a) },
+		Menu:   func() []traymenu.Item { return a.Menu() },
+		Select: func(ev traymenu.Event) { handleCommand(a, lc, ev) },
+		Click:  func() { _ = openURL(a.PanelClient().PanelURL()) },
 		// The tray's own timer runs every second and only re-reads the tooltip.
 		// Polling the gateway from here as well would ignore the configured
 		// interval entirely and query the panel once a second.
@@ -79,7 +79,7 @@ func run(cfg config.Config, cfgPath string) error {
 				Style:  config.Styles[index],
 				Metric: a.Config().Metric,
 				Lang:   a.Lang(),
-				Theme:  theme.ByName(a.Config().Theme),
+				Theme:  theme.ByName(a.Config().Theme, systemAccent()),
 				Snap:   a.Snapshot(),
 				Paused: a.Paused(),
 			})
@@ -154,7 +154,7 @@ func handleCommand(a *app.App, lc *lifecycle, ev traymenu.Event) {
 		}
 		return
 	case ev.ID >= app.IDThemeBase && ev.ID < app.IDLangBase:
-		all := theme.All()
+		all := theme.All(systemAccent())
 		if i := int(ev.ID - app.IDThemeBase); i < len(all) {
 			a.SetTheme(all[i].Name)
 		}
@@ -169,9 +169,6 @@ func handleCommand(a *app.App, lc *lifecycle, ev traymenu.Event) {
 	case ev.ID >= app.IDTaskBase && ev.ID < app.IDTaskBase+uint32(len(app.Tasks)):
 		task := app.Tasks[ev.ID-app.IDTaskBase]
 		go runTask(a, task)
-		return
-	case ev.ID == app.IDChartWindow:
-		openChartWindow(a)
 		return
 	case ev.ID == app.IDOpenPanel:
 		_ = openURL(a.PanelClient().PanelURL())
