@@ -304,6 +304,12 @@ func rail(l *Layout, v View) {
 			w = Figure
 		}
 		l.add(tabLabel(t, v.Lang), 20, y+7, 12.5, w, col)
+		// A count beside the two pages that have one, which is the pattern the
+		// dashboards this follows use: the number is what says whether the page is
+		// worth opening, so it belongs on the navigation rather than inside.
+		if n := tabCount(t, v); n != "" {
+			l.addRight(n, RailW-16, y+9, 10.5, Label, p.Faint)
+		}
 		l.hit(8, y, RailW-16, RailRowH-4, ActionTab, string(t))
 		y += RailRowH
 	}
@@ -324,6 +330,25 @@ func rail(l *Layout, v View) {
 	if v.Snap.Process.Found {
 		l.add(fmt.Sprintf("PID %d", v.Snap.Process.PID), 20, by+22, 10.5, Label, p.Faint)
 	}
+}
+
+// tabCount is the badge beside a navigation row.
+func tabCount(t Tab, v View) string {
+	switch t {
+	case TabAccounts:
+		if n := len(v.Snap.Accounts); n > 0 {
+			return fmt.Sprintf("%d", n)
+		}
+	case TabModels:
+		if n := len(v.Models); n > 0 {
+			return fmt.Sprintf("%d", n)
+		}
+	case TabLogs:
+		if n := len(v.Logs); n > 0 {
+			return fmt.Sprintf("%d", n)
+		}
+	}
+	return ""
 }
 
 // content dispatches to the page.
@@ -477,6 +502,36 @@ func overviewPage(l *Layout, v View) {
 		}
 	}
 	y += statH + gap
+
+	// The pool as a row of pips, one per account: the pattern the dashboards this
+	// follows use, and the fastest reading in the window. A bar of figures says how
+	// many are well; a row of dots says which, and where the cooling one sits in the
+	// order is what an operator is looking for.
+	if n := len(snap.Accounts); n > 0 {
+		l.add("账号状态", x, y, 11, Label, p.Muted)
+		px := x + textWidth("账号状态", 11) + 12
+		shown := n
+		if room := int((w - (px - x)) / 16); shown > room {
+			shown = room
+		}
+		for i := 0; i < shown; i++ {
+			a := snap.Accounts[i]
+			col := p.Green
+			switch {
+			case a.Disabled:
+				col = p.Faint
+			case a.Cooling:
+				col = p.Warn
+			case a.InFlight > 0:
+				col = p.Blue
+			}
+			l.Ink.Circle(px+float64(i)*16+5, y+6, 5, col)
+		}
+		if shown < n {
+			l.add(fmt.Sprintf("+%d", n-shown), px+float64(shown)*16+2, y, 10.5, Label, p.Faint)
+		}
+		y += 22
+	}
 
 	// The actions row, at the bottom of the page, because these are what an
 	// operator reaches for while something is already wrong.
