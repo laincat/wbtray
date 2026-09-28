@@ -85,13 +85,19 @@ func (c *Client) Base() string { return c.base }
 // Key is the API key in use.
 func (c *Client) Key() string { return c.key }
 
-// PanelURL is the console page with the key already filled in, so the browser
-// does not have to ask for it again.
+// PanelURL is the console page to open in the browser.
+//
+// It deliberately carries no API key. An earlier version appended "?key=", on the
+// assumption that the console reads it and skips its login prompt. It does not:
+// the gateway's app.js contains no query-string parsing at all, and opening the
+// page with the parameter still shows the "需要访问密钥" prompt. So the parameter
+// bought nothing and cost something, because a key in a URL is written to browser
+// history, where it outlives the visit and is copied by profile sync.
+//
+// The key is still one menu click away: the gateway block's copy submenu puts it on
+// the clipboard for the prompt.
 func (c *Client) PanelURL() string {
-	if c.key == "" {
-		return c.base + "/panel/"
-	}
-	return c.base + "/panel/?key=" + c.key
+	return c.base + "/panel/"
 }
 
 // Fetch reads every endpoint the tray shows and merges them into one snapshot.

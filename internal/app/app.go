@@ -239,8 +239,9 @@ func (a *App) Snapshot() status.Snapshot {
 // key already in the URL.
 func (a *App) PanelClient() *panel.Client { return a.client }
 
-// PanelURL is the console page with the key filled in, so the menu's "open
-// panel" row does not send the operator to a login prompt.
+// PanelURL is the console page the menu's "open panel" row visits. It carries no
+// key; the panel client explains why, and the gateway block's copy submenu is how
+// the key reaches the console's prompt.
 func (a *App) PanelURL() string { return a.client.PanelURL() }
 
 // BaseURL is the gateway root the tray is watching.
