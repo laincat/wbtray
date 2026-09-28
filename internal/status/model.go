@@ -66,6 +66,14 @@ type Account struct {
 	// account the tray calls the current one. It is filled by UnmarshalJSON from
 	// the nested token usage the gateway sends.
 	LastUsed time.Time
+
+	// The account's own last request, which is what the window's table shows.
+	// They are per account rather than pooled: a pool average tells an operator
+	// nothing about which account is the slow one, and "which account is slow" is
+	// the question a table of accounts exists to answer.
+	LastLatencyMs float64
+	LastTPS       float64
+	Requests      int64
 }
 
 // Usage is the usage snapshot, reduced to what fits in a tray.

@@ -37,7 +37,10 @@ type accountWire struct {
 	Breaker    int       `json:"breaker_fails"`
 
 	TokenUsage struct {
-		LastUsedAt time.Time `json:"last_used_at"`
+		RequestCount        int64     `json:"request_count"`
+		LastLatencyMs       float64   `json:"last_latency_ms"`
+		LastTokensPerSecond float64   `json:"last_tokens_per_second"`
+		LastUsedAt          time.Time `json:"last_used_at"`
 	} `json:"token_usage"`
 }
 
@@ -66,6 +69,12 @@ func (a *Account) UnmarshalJSON(data []byte) error {
 		DisabledBy: wire.DisabledBy,
 		Breaker:    wire.Breaker,
 		LastUsed:   wire.TokenUsage.LastUsedAt,
+		// The account's own last request, rather than the pool's average: "which
+		// account is the slow one" is the question a table of accounts exists to
+		// answer, and an average answers it for nobody.
+		Requests:      wire.TokenUsage.RequestCount,
+		LastLatencyMs: wire.TokenUsage.LastLatencyMs,
+		LastTPS:       wire.TokenUsage.LastTokensPerSecond,
 	}
 	return nil
 }

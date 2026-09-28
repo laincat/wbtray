@@ -119,6 +119,16 @@ var (
 	ProcDrawTextW             = user32.NewProc("DrawTextW")
 	ProcGetClientRect         = user32.NewProc("GetClientRect")
 
+	// The window's interior is drawn with GDI. RoundRect is the one primitive the
+	// tray's own renderer has no equivalent for — it does its own anti-aliasing —
+	// and Polyline is how the trend is drawn without a stroke rasteriser.
+	ProcRoundRect = gdi32.NewProc("RoundRect")
+	ProcPolyline  = gdi32.NewProc("Polyline")
+	// A rounded window is the shape the design language asks for, and the shell
+	// provides it through a window region rather than through a style bit.
+	ProcCreateRoundRectRgn = gdi32.NewProc("CreateRoundRectRgn")
+	ProcSetWindowRgn       = user32.NewProc("SetWindowRgn")
+
 	// The read side of the clipboard, used by the tests to check what a second
 	// program would see.
 	procIsClipboardFormatAvailable = user32.NewProc("IsClipboardFormatAvailable")
