@@ -7,6 +7,7 @@ import (
 
 	"wbtray/internal/i18n"
 	"wbtray/internal/install"
+	"wbtray/internal/panel"
 	"wbtray/internal/status"
 )
 
@@ -87,6 +88,23 @@ func (a *App) Bootstrap(ctx context.Context, gw GatewayLifecycle, progress func(
 // a fresh install is in and the one where the operator has to be told what to do
 // next: the gateway is running, but it can serve nothing until an account is
 // added through its own panel.
+// Schedule is which of the gateway's scheduled tasks are running.
+//
+// The zero value means the gateway has not been asked yet, which the menu shows as
+// "unknown" rather than as five switches that are off.
+func (a *App) Schedule() panel.Schedule {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.schedule
+}
+
+// SetSchedule records what the gateway reported about its scheduled tasks.
+func (a *App) SetSchedule(s panel.Schedule) {
+	a.mu.Lock()
+	a.schedule = s
+	a.mu.Unlock()
+}
+
 func (a *App) NeedsLogin() bool {
 	a.mu.Lock()
 	snap, reachable := a.snap, a.snap.Reachable

@@ -105,6 +105,9 @@ type App struct {
 	trayVersion string
 	// updates is what the last version check found.
 	updates UpdateState
+	// schedule is which of the gateway's scheduled tasks are running, as last read
+	// from the gateway itself.
+	schedule panel.Schedule
 	// gatewayInstalled reports whether wbtray's own copy of the gateway is on
 	// disk, which the front end sets and the menu reads.
 	gatewayInstalled bool
@@ -382,8 +385,12 @@ func (a *App) Refresh() {
 	client := a.PanelClient()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Deferred rather than called once the snapshot arrives: everything read from the
+	// gateway below shares this context, and one of the paths out of this function
+	// returns before reaching an explicit cancel.
+	defer cancel()
+
 	snap := client.Fetch(ctx)
-	cancel()
 
 	snap.Process = a.gateway.PID()
 	if a.Paused() {
@@ -398,6 +405,16 @@ func (a *App) Refresh() {
 	a.mu.Unlock()
 
 	a.learnGatewayVersion(snap)
+	if snap.Reachable {
+		// Which tasks the gateway is running is part of what the menu shows, and it
+		// is read from the gateway so the two cannot disagree. It has to share the
+		// context the snapshot was taken with — cancelling that context before this
+		// read left it with a dead one, and the task switches sat on "not read"
+		// while every other figure arrived.
+		if s := client.FetchSchedule(ctx); s.Known {
+			a.SetSchedule(s)
+		}
+	}
 	a.react(snap)
 	a.refreshIcon()
 	if fe := a.FrontEnd(); fe != nil {

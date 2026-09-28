@@ -49,6 +49,13 @@ type Item struct {
 	// Dot draws a small coloured pip before the label, which is how a status row
 	// shows health without a second column of text.
 	Dot raster.RGBA
+	// Hint is the one sentence shown about the row while the pointer is on it.
+	//
+	// A menu row can say what it is called; it cannot say what it does. Every row
+	// that starts, stops or changes something carries one, because a tray menu is
+	// opened by someone who has forgotten which of two similar rows is the one
+	// they want.
+	Hint string
 	// Children are the rows of a submenu.
 	Children []Item
 	// Preview is the rendered icon for a style row.
@@ -56,18 +63,18 @@ type Item struct {
 }
 
 // Command builds a plain clickable row.
-func Command(id uint32, text string) Item {
-	return Item{Kind: CommandRow, ID: id, Text: text}
+func Command(id uint32, text, hint string) Item {
+	return Item{Kind: CommandRow, ID: id, Text: text, Hint: hint}
 }
 
 // Check builds a toggle row.
-func Check(id uint32, text string, checked bool) Item {
-	return Item{Kind: CheckRow, ID: id, Text: text, Checked: checked}
+func Check(id uint32, text, hint string, checked bool) Item {
+	return Item{Kind: CheckRow, ID: id, Text: text, Hint: hint, Checked: checked}
 }
 
 // Radio builds one row of a single-choice group.
-func Radio(id uint32, text string, selected bool) Item {
-	return Item{Kind: RadioRow, ID: id, Text: text, Checked: selected}
+func Radio(id uint32, text, hint string, selected bool) Item {
+	return Item{Kind: RadioRow, ID: id, Text: text, Hint: hint, Checked: selected}
 }
 
 // Value builds a readout row, which the system draws dimmed and inert.
@@ -75,15 +82,24 @@ func Value(text, value string) Item {
 	return Item{Kind: ValueRow, Text: text, Value: value, Disabled: true}
 }
 
+// ValueHint is Value with a sentence shown on hover, for a readout whose meaning is
+// not obvious from its label.
+func ValueHint(text, value, hint string) Item {
+	it := Value(text, value)
+	it.Hint = hint
+	return it
+}
+
 // Status builds a readout row that the front end paints itself.
 //
 // It is a value row in every respect but the drawing, so the colour it carries
 // survives the system's habit of dimming anything that cannot be clicked.
-func Status(text, value string, dot raster.RGBA, bold bool) Item {
+func Status(text, value, hint string, dot raster.RGBA, bold bool) Item {
 	return Item{
 		Kind:      ValueRow,
 		Text:      text,
 		Value:     value,
+		Hint:      hint,
 		Dot:       dot,
 		Bold:      bold,
 		Disabled:  true,
@@ -92,12 +108,19 @@ func Status(text, value string, dot raster.RGBA, bold bool) Item {
 }
 
 // Submenu builds a row that opens a nested list.
-func Submenu(text string, children []Item) Item {
-	return Item{Kind: SubmenuRow, Text: text, Children: children}
+func Submenu(text, hint string, children []Item) Item {
+	return Item{Kind: SubmenuRow, Text: text, Hint: hint, Children: children}
 }
 
 // Separator builds a rule.
 func Separator() Item { return Item{Kind: SeparatorRow} }
+
+// WithDefault marks a row as the menu's default item, which is what the Enter key
+// reaches without an arrow key being pressed. A menu gets one.
+func (i Item) WithDefault() Item {
+	i.Bold = true
+	return i
+}
 
 // Event is what a click reports back to the application.
 type Event struct {

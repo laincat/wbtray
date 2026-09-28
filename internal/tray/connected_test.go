@@ -7,9 +7,11 @@ import (
 
 	"wbtray/internal/app"
 	"wbtray/internal/config"
+	"wbtray/internal/i18n"
 	"wbtray/internal/raster"
 	"wbtray/internal/status"
 	"wbtray/internal/theme"
+	"wbtray/internal/traymenu"
 )
 
 // TestConnectedMenuDrawsLiveNumbers exercises the path from the gateway's JSON
@@ -60,14 +62,20 @@ func TestConnectedMenuDrawsLiveNumbers(t *testing.T) {
 		t.Fatalf("series has %d buckets, want 24", len(snap.Usage.Series))
 	}
 
-	// The status row shows the live pair, which is what makes the header worth
-	// looking at without opening anything else.
+	// The state row shows the credit total, and the account row the ready pair: the
+	// two figures the header is worth opening for.
 	items := a.Menu()
-	if items[0].Value == "" || items[1].Value == "" {
-		t.Errorf("the status rows carry no values:\n%s", describe(items))
+	if items[0].Value == "" {
+		t.Errorf("the state row carries no value:\n%s", describe(items))
 	}
-	if !contains(items[1].Value, "1/3") {
-		t.Errorf("the account row shows %q, want the ready/total pair", items[1].Value)
+	var accountRow traymenu.Item
+	for _, it := range items {
+		if it.Text == i18n.T("en", "menu.accounts") {
+			accountRow = it
+		}
+	}
+	if !contains(accountRow.Value, "1/3") {
+		t.Errorf("the account row shows %q, want the ready/total pair", accountRow.Value)
 	}
 
 	// The tooltip is the other surface the same numbers reach.

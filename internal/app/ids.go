@@ -73,6 +73,9 @@ const (
 type Task struct {
 	// Key is the message key for the row's label.
 	Key string
+	// Hint is the message key for the sentence shown while the row is selected, which
+	// says what the action does to every account at once.
+	Hint string
 	// Path is the panel endpoint, relative to the gateway root.
 	Path string
 }
@@ -82,11 +85,11 @@ type Task struct {
 // ones an operator reaches for while something is already wrong, not the whole
 // console.
 var Tasks = []Task{
-	{"task.checkin", "/panel/api/checkin_all"},
-	{"task.travel", "/panel/api/travel_all"},
-	{"task.activity", "/panel/api/activity_all"},
-	{"task.keepalive", "/panel/api/keepalive_all"},
-	{"task.balance", "/panel/api/balance_all"},
-	{"task.scan", "/panel/api/tasks/scan_all"},
-	{"task.run_queue", "/panel/api/tasks/run_queue"},
+	{"task.checkin", "hint.task_checkin_now", "/panel/api/checkin_all"},
+	{"task.travel", "hint.task_travel_now", "/panel/api/travel_all"},
+	{"task.activity", "hint.task_activity_now", "/panel/api/activity_all"},
+	{"task.keepalive", "hint.task_keepalive_now", "/panel/api/keepalive_all"},
+	{"task.balance", "hint.task_balance_now", "/panel/api/balance_all"},
+	{"task.scan", "hint.task_scan_now", "/panel/api/tasks/scan_all"},
+	{"task.run_queue", "hint.task_run_queue_now", "/panel/api/tasks/run_queue"},
 }

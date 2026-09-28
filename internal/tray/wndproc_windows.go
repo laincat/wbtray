@@ -48,6 +48,21 @@ func (t *Icon) wndProc(hwnd uintptr, msg uint32, wparam uintptr, lparam unsafe.P
 		}
 		return 0
 
+	case wmMenuSelect:
+		// The shell reports each row the pointer crosses. The sentence for that row
+		// is what the tip draws; a separator, a submenu or the menu itself reports
+		// nothing, which is what takes the tip away again.
+		t.mu.Lock()
+		hint, items, hx, hy := t.hint, t.menuItemsSnapshot, t.hintX, t.hintY
+		t.mu.Unlock()
+		if hint == nil {
+			return 0
+		}
+		if t.updateHint(hint, items, wparam, hx, hy) {
+			return 0
+		}
+		return 0
+
 	case wmMeasureItem:
 		// An owner-draw row reports its own height, because the shell has no way
 		// to know how tall a row it is not drawing should be.

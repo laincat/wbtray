@@ -343,8 +343,64 @@ func classify(text string) level {
 	return levelInfo
 }
 
-// Trigger posts to one of the panel's one-shot maintenance endpoints, which is
-// how the tray runs a task without making the operator open the console.
+// Schedule is which of the gateway's scheduled tasks are switched on.
+//
+// The zero value means "not read", which the menu has to tell from "all off": an
+// unticked row says a task is disabled, and a task that is on but unread is a
+// different thing.
+type Schedule struct {
+	Known          bool
+	Checkin        bool
+	Travel         bool
+	Activity       bool
+	Keepalive      bool
+	BalanceRefresh bool
+}
+
+// scheduleBody is the part of the gateway's configuration this reads. The field tags
+// mirror the gateway's own names, which is why they are spelled out rather than
+// derived.
+type scheduleBody struct {
+	Config struct {
+		Schedule struct {
+			Checkin        bool `json:"checkin_enabled"`
+			Travel         bool `json:"travel_enabled"`
+			Activity       bool `json:"activity_enabled"`
+			Keepalive      bool `json:"keepalive_enabled"`
+			BalanceRefresh bool `json:"balance_refresh_enabled"`
+		} `json:"schedule"`
+	} `json:"config"`
+}
+
+// FetchSchedule asks the gateway which scheduled tasks it is running.
+//
+// It reads the gateway's own configuration through its panel API rather than the file
+// on disk, so the answer is what the running gateway is using rather than what was
+// written there before it started. A failure leaves Known false.
+func (c *Client) FetchSchedule(ctx context.Context) Schedule {
+	var v scheduleBody
+	if err := c.get(ctx, "/panel/api/config", &v); err != nil {
+		return Schedule{}
+	}
+	s := v.Config.Schedule
+	return Schedule{
+		Known:          true,
+		Checkin:        s.Checkin,
+		Travel:         s.Travel,
+		Activity:       s.Activity,
+		Keepalive:      s.Keepalive,
+		BalanceRefresh: s.BalanceRefresh,
+	}
+}
+
+// decode lets a scheduleBody be filled by the client's own request path, which hands
+// each decoder the response body rather than a reader.
+func (b *scheduleBody) decode(data []byte) error {
+	return json.Unmarshal(data, b)
+}
+
+// Trigger posts to one of the panel's one-shot maintenance endpoints, which is how
+// the tray runs a task without making the operator open the console.
 //
 // The response body is returned because the panel answers with what it did, and
 // that text is what the tray shows in its confirmation balloon.

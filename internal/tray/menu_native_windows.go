@@ -407,6 +407,18 @@ func (t *Icon) showNativeMenu(x, y int) {
 	// clicks elsewhere — a well-known shell quirk.
 	winapi.ProcSetForegroundWindow.Call(hwnd)
 
+	// The tip needs the model the menu was built from, so that a selection can be
+	// turned back into the sentence that goes with it, and the place the menu was
+	// put so it can sit against it.
+	t.mu.Lock()
+	t.menuItemsSnapshot = items
+	t.hintX, t.hintY = int(pt.X)+hintOffset, int(pt.Y)+hintOffset
+	hint := t.hint
+	t.mu.Unlock()
+	if hint != nil {
+		defer hint.hide()
+	}
+
 	// The painter has to be reachable from the window procedure while the menu is
 	// up, because that is where WM_DRAWITEM arrives.
 	t.setMenuPainter(painter)
@@ -417,6 +429,11 @@ func (t *Icon) showNativeMenu(x, y int) {
 	if cmd != 0 && t.cb.Select != nil {
 		t.cb.Select(traymenu.Event{ID: uint32(cmd)})
 	}
+
+	// The menu is gone, so the sentences that described it are stale.
+	t.mu.Lock()
+	t.menuItemsSnapshot = nil
+	t.mu.Unlock()
 }
 
 func (t *Icon) hwndForMenu() uintptr {
@@ -502,4 +519,31 @@ func buildMenu(items []traymenu.Item, bitmaps *menuBitmapOwner, painter *statusP
 		}
 	}
 	return hMenu
+}
+
+// updateHint shows or hides the tip for a selection message.
+//
+// WM_MENUSELECT carries the row's id in the low word and its kind in the high word.
+// The kind is what distinguishes a command from a separator or a submenu — rows that
+// have no sentence of their own and would otherwise leave the previous row's sentence
+// on screen.
+func (t *Icon) updateHint(hint *hintWindow, items []traymenu.Item, wparam uintptr, x, y int) bool {
+	const (
+		mfPopup     = 0x00000010
+		mfSeparator = 0x00000800
+		mfSysMenu   = 0x00002000
+	)
+	id := winapi.LowWord(wparam)
+	flags := uint32(wparam >> 16)
+	if flags&mfSeparator != 0 || flags&mfPopup != 0 || flags&mfSysMenu != 0 || id == 0 {
+		hint.hide()
+		return true
+	}
+	text := hintText(items, id)
+	if text == "" {
+		hint.hide()
+		return true
+	}
+	hint.show(text, x, y)
+	return true
 }

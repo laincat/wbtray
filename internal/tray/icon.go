@@ -31,6 +31,7 @@ const (
 	wmTimer         = 0x0113
 	wmDrawItem      = 0x002B
 	wmMeasureItem   = 0x002C
+	wmMenuSelect    = 0x011F
 	wmLButtonUp     = 0x0202
 	wmLButtonDBL    = 0x0203
 	wmRButtonUp     = 0x0205
@@ -132,6 +133,16 @@ type Icon struct {
 	// menuPainter is installed while a menu is open, because that is where
 	// WM_DRAWITEM arrives and the rows it has to paint live.
 	menuPainter *statusPainter
+	// hint is the tip that explains whichever row the pointer is on. It is created
+	// with the icon and hidden between menus, because a tray menu opens and closes
+	// all day and a window per open would leak a handle per right-click.
+	hint *hintWindow
+	// menuItemsSnapshot is the model the open menu was built from, so a selection can
+	// be turned back into the sentence that belongs to it.
+	menuItemsSnapshot []traymenu.Item
+	// hintX and hintY are where the open menu was placed, so the tip can be put
+	// against it.
+	hintX, hintY int
 	// lastClickTime implements the double-click test for the icon.
 	lastClickTime uint32
 }
@@ -291,6 +302,14 @@ func (t *Icon) Run() error {
 	nidv := t.newNID(hwnd, hicon, 0)
 	nidv.UVersion = notifyIconVersion4
 	winapi.ProcShellNotifyIconW.Call(nimSetVersion, uintptr(unsafe.Pointer(nidv)))
+
+	// The tip that explains menu rows. A failure leaves it nil, and the menu works
+	// without it.
+	if h := newHintWindow(); h != nil {
+		t.mu.Lock()
+		t.hint = h
+		t.mu.Unlock()
+	}
 
 	// One-second timer drives the tooltip; the callback decides how much work
 	// that costs, so the icon itself stays responsive.

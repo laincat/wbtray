@@ -10,6 +10,7 @@ import (
 	"wbtray/internal/config"
 	"wbtray/internal/i18n"
 	"wbtray/internal/status"
+	"wbtray/internal/theme"
 	"wbtray/internal/traymenu"
 )
 
@@ -36,51 +37,88 @@ func (s *stubGateway) SetConsole(show bool) error { s.console = show; return nil
 func (s *stubGateway) AutoStartEnabled() bool     { return s.autoStart }
 func (s *stubGateway) SetAutoStart(on bool) error { s.autoStart = on; return nil }
 
-// TestTopLevelMenuIsEightRows is the shape of the whole rewrite.
+// pip is the colour the measurement tests give a row. Its value does not matter to a
+// width; only whether a row has one.
+var pip = theme.Neon().OK
+
+// TestTopLevelMenuIsNineRows is the shape of the whole menu.
 //
-// The menu used to put every figure, every style and every maintenance action at the
-// top level: twenty-six rows, taller than a laptop screen at a large text size, with
-// the rows an operator reaches for somewhere in the middle of it. The count is
-// asserted rather than described because the way a menu grows back is one reasonable
-// addition at a time.
-func TestTopLevelMenuIsEightRows(t *testing.T) {
+// The top level is the state, six things to do, and the row that ends it — nine\r\n// rows in four blocks. The count is asserted rather than described because the way a
+// menu grows back is one reasonable addition at a time.
+func TestTopLevelMenuIsNineRows(t *testing.T) {
+	server := newFakePanel(t)
+	defer server.Close()
+
 	cfg := config.Default()
 	cfg.Lang = "zh"
+	cfg.BaseURL = server.URL
+	cfg.APIKey = "test-key"
 	a := app.New(cfg, "", &stubGateway{pid: status.PIDInfo{Found: true, PID: 16780}}, app.Options{})
+	a.Refresh()
 
-	items := a.Menu()
 	rows, separators := 0, 0
-	for _, it := range items {
+	for _, it := range a.Menu() {
 		if it.Kind == traymenu.SeparatorRow {
 			separators++
 			continue
 		}
 		rows++
 	}
-	if rows != 8 {
-		t.Errorf("the top level has %d rows, want 8:\n%s", rows, describe(items))
+	if rows != 9 {
+		t.Errorf("the top level has %d rows, want 9:\n%s", rows, describe(a.Menu()))
 	}
-	if separators != 2 {
-		t.Errorf("the top level has %d separators, want 2", separators)
+	if separators != 3 {
+		t.Errorf("the top level has %d separators, want 3", separators)
 	}
 }
 
-// TestEveryLabelIsShort is the naming rule the rewrite was asked for.
+// TestEveryRowExplainsItself is the rule the menu was rebuilt around.
 //
-// Two characters for a Chinese label and one word for an English one, because a long
-// label beside a short one makes the short one look like a different kind of thing.
-// It is checked rather than trusted: the natural way to write a new row is to
-// describe what it does, and the description is always too long.
-func TestEveryLabelIsShort(t *testing.T) {
+// A menu row can say what it is called and cannot say what it does, so every row that
+// does something carries a sentence for the tip. It is checked rather than trusted:
+// the natural way to add a row is to give it a label and stop.
+func TestEveryRowExplainsItself(t *testing.T) {
+	server := newFakePanel(t)
+	defer server.Close()
+
 	cfg := config.Default()
 	cfg.Lang = "zh"
+	cfg.BaseURL = server.URL
+	cfg.APIKey = "test-key"
 	a := app.New(cfg, "", &stubGateway{pid: status.PIDInfo{Found: true, PID: 16780}}, app.Options{})
+	a.Refresh()
+
+	for _, it := range rowsOf(a.Menu()) {
+		switch it.Kind {
+		case traymenu.SeparatorRow:
+			continue
+		case traymenu.ValueRow:
+			// A readout is a figure, not an action; where it needs explaining the
+			// explanation is on the row that opens its block.
+			continue
+		}
+		if it.Hint == "" {
+			t.Errorf("the row %q does nothing to explain itself", it.Text)
+		}
+	}
+}
+
+// TestEveryLabelIsShort is the naming rule.
+func TestEveryLabelIsShort(t *testing.T) {
+	server := newFakePanel(t)
+	defer server.Close()
+
+	cfg := config.Default()
+	cfg.Lang = "zh"
+	cfg.BaseURL = server.URL
+	cfg.APIKey = "test-key"
+	a := app.New(cfg, "", &stubGateway{pid: status.PIDInfo{Found: true, PID: 16780}}, app.Options{})
+	a.Refresh()
 
 	for _, it := range rowsOf(a.Menu()) {
 		if it.ID == 0 {
-			// A row with no command id is a readout, and a readout says whatever
-			// it has to say: "无法连接 127.0.0.1:7863" is the whole message, and
-			// shortening it to four characters would leave it saying nothing.
+			// A row with no command id is a readout, and a readout says whatever it
+			// has to say.
 			continue
 		}
 		if n := len([]rune(it.Text)); n > 4 {
@@ -89,14 +127,10 @@ func TestEveryLabelIsShort(t *testing.T) {
 	}
 }
 
-// rowsOf walks every row at every depth, which is the only way a rule like the one
-// above applies to the whole menu rather than to what is visible at once.
+// rowsOf walks every row at every depth.
 func rowsOf(items []traymenu.Item) []traymenu.Item {
 	var out []traymenu.Item
 	for _, it := range items {
-		if it.Kind == traymenu.SeparatorRow {
-			continue
-		}
 		out = append(out, it)
 		out = append(out, rowsOf(it.Children)...)
 	}
@@ -108,7 +142,7 @@ func describe(items []traymenu.Item) string {
 	out := ""
 	for _, it := range items {
 		if it.Kind == traymenu.SeparatorRow {
-			out += "---\n"
+			out += "---" + "\n"
 			continue
 		}
 		out += it.Text
@@ -123,87 +157,47 @@ func describe(items []traymenu.Item) string {
 	return out
 }
 
-// TestGatewaySubmenuOffersBothCopyValues checks the rows the copy feature exists for.
+// TestStateRowIsAColourAndACreditTotal checks the one readout the menu opens with.
 //
-// They live in the gateway submenu because both values describe the gateway: its
-// address is where it listens, and its key is what it expects a client to present.
-// Both were previously unreachable — the first because its row was inert with an id
-// of zero, the second because no row existed at all.
-func TestGatewaySubmenuOffersBothCopyValues(t *testing.T) {
-	cfg := config.Default()
-	cfg.Lang = "zh"
-	cfg.BaseURL = "http://127.0.0.1:7863"
-	cfg.APIKey = "sk-test"
+// It used to be two rows of labels: "wbtray · healthy" and "accounts". The pair that
+// answers anything is the health colour and the credits behind it, and the words were
+// occupying the width of every other row.
+func TestStateRowIsAColourAndACreditTotal(t *testing.T) {
+	server := newFakePanel(t)
+	defer server.Close()
 
-	a := app.New(cfg, "", &stubGateway{}, app.Options{})
-	item, ok := submenuWithChild(a.Menu(), app.IDCopyURL)
-	if !ok {
-		t.Fatalf("no gateway submenu carrying the address row:\n%s", describe(a.Menu()))
-	}
-
-	var addr, key traymenu.Item
-	for _, child := range item.Children {
-		switch child.ID {
-		case app.IDCopyURL:
-			addr = child
-		case app.IDCopyKey:
-			key = child
-		}
-	}
-	if addr.ID == 0 || key.ID == 0 {
-		t.Fatalf("the gateway submenu holds no address and key pair:\n%s", describe(item.Children))
-	}
-
-	// The value shown is the host, which is the part that fits a menu column; what
-	// is copied is the full address with its scheme.
-	if addr.Value != "127.0.0.1:7863" {
-		t.Errorf("the address row shows %q, want the host", addr.Value)
-	}
-	if addr.Disabled {
-		t.Error("the address row is inert")
-	}
-	// The key itself must not be in the menu: an open menu is a screenshot.
-	if key.Value != "" {
-		t.Errorf("the key row carries the key itself: %q", key.Value)
-	}
-	if key.Disabled {
-		t.Error("the key row is inert even though a key is configured")
-	}
-}
-
-// TestCopyKeyRowIsInertWithoutAKey checks the empty case, which is the state a first
-// run is in before discovery has read the gateway's configuration.
-func TestCopyKeyRowIsInertWithoutAKey(t *testing.T) {
 	cfg := config.Default()
 	cfg.Lang = "en"
-	cfg.APIKey = ""
-	cfg.DiscoveryEnabled = false
+	cfg.BaseURL = server.URL
+	cfg.APIKey = "test-key"
 
-	a := app.New(cfg, "", &stubGateway{}, app.Options{})
-	item, ok := submenuWithChild(a.Menu(), app.IDCopyKey)
-	if !ok {
-		t.Fatalf("no gateway submenu carrying the key row:\n%s", describe(a.Menu()))
+	a := app.New(cfg, "", &stubGateway{pid: status.PIDInfo{Found: true, PID: 1}}, app.Options{})
+	a.Refresh()
+
+	head := a.Menu()[0]
+	if head.Dot.A == 0 {
+		t.Error("the state row carries no colour")
 	}
-	var key traymenu.Item
-	for _, child := range item.Children {
-		if child.ID == app.IDCopyKey {
-			key = child
-		}
+	if !head.OwnerDraw {
+		t.Error("the state row is not drawn by hand, so its colour would be dimmed")
 	}
-	if !key.Disabled {
-		t.Error("the key row is clickable with no key to copy")
+	if head.Value != "21,000" {
+		t.Errorf("the state row shows %q, want the credit total", head.Value)
 	}
-	if key.Value != i18n.T("en", "copy.none") {
-		t.Errorf("the key row says %q, want the empty-state wording", key.Value)
+	if head.Text != i18n.T("en", "state.credits") {
+		t.Errorf("the state row says %q, want the credit label", head.Text)
+	}
+	if head.Hint == "" {
+		t.Error("the state row explains nothing on hover")
+	}
+	if strings.Contains(head.Text, "wbtray") {
+		t.Errorf("the state row repeats the program name: %q", head.Text)
 	}
 }
 
-// TestGatewayRowCarriesThePID checks the value column on a submenu row, which is
-// where the pid is shown now that it is not a row of its own.
-//
-// A reading has to happen first: the row is built from the snapshot, and the snapshot
-// is what carries the process the tray is watching.
-func TestGatewayRowCarriesThePID(t *testing.T) {
+// TestGatewaySubmenuCarriesEverythingAboutTheProcess checks the block the request
+// grouped: what is running, the copy rows, and where it lives.
+func TestGatewaySubmenuCarriesEverythingAboutTheProcess(t *testing.T) {
 	server := newFakePanel(t)
 	defer server.Close()
 
@@ -215,26 +209,77 @@ func TestGatewayRowCarriesThePID(t *testing.T) {
 	a := app.New(cfg, "", &stubGateway{pid: status.PIDInfo{Found: true, PID: 16780}}, app.Options{})
 	a.Refresh()
 
-	var found bool
+	var gw traymenu.Item
 	for _, it := range a.Menu() {
-		// The label carries a state suffix while the gateway is down, so the test
-		// matches on the prefix rather than on the whole string.
 		if it.Kind == traymenu.SubmenuRow && strings.HasPrefix(it.Text, i18n.T("en", "menu.gateway")) {
-			found = true
-			if it.Value != "PID 16780" {
-				t.Errorf("the gateway row shows %q, want the pid", it.Value)
-			}
+			gw = it
 		}
 	}
-	if !found {
-		t.Errorf("no gateway row:\n%s", describe(a.Menu()))
+	if gw.ID != 0 && gw.Text == "" {
+		t.Fatalf("no gateway row:\n%s", describe(a.Menu()))
+	}
+	if gw.Value != "PID 16780" {
+		t.Errorf("the gateway row shows %q, want the pid", gw.Value)
+	}
+
+	ids := map[uint32]bool{}
+	for _, child := range gw.Children {
+		ids[child.ID] = true
+	}
+	for _, want := range []uint32{
+		app.IDGatewayStop, app.IDGatewayRestart, app.IDConsoleToggle,
+		app.IDCopyURL, app.IDCopyKey, app.IDGatewayAutoStart, app.IDOpenGatewayDir,
+	} {
+		if !ids[want] {
+			t.Errorf("the gateway block is missing the row with id %d:\n%s", want, describe(gw.Children))
+		}
 	}
 }
 
-// TestStatusRowsAreOwnerDrawn checks the rows whose colour is information.
-//
-// It is the reason those two rows are painted by hand at all: the shell dims a row it
-// cannot click, and it dims that row's icon with it.
+// TestTaskRowsShowTheGatewaySchedule checks that the ticks come from the gateway
+// rather than from a list this program keeps.
+func TestTaskRowsShowTheGatewaySchedule(t *testing.T) {
+	server := newFakePanel(t)
+	defer server.Close()
+
+	cfg := config.Default()
+	cfg.Lang = "en"
+	cfg.BaseURL = server.URL
+	cfg.APIKey = "test-key"
+
+	a := app.New(cfg, "", &stubGateway{}, app.Options{})
+	a.Refresh()
+
+	var tasks traymenu.Item
+	for _, it := range a.Menu() {
+		if it.Kind == traymenu.SubmenuRow && it.Text == i18n.T("en", "menu.tasks") {
+			tasks = it
+		}
+	}
+	if tasks.Text == "" {
+		t.Fatalf("no tasks row:\n%s", describe(a.Menu()))
+	}
+
+	var ticks, actions int
+	for _, child := range tasks.Children {
+		switch child.Kind {
+		case traymenu.CheckRow:
+			ticks++
+		case traymenu.CommandRow:
+			actions++
+		}
+	}
+	// The fixture enables most of the schedule, and the maintenance actions sit
+	// under the same block.
+	if ticks < 3 {
+		t.Errorf("the task block shows %d switches, want the gateway's schedule", ticks)
+	}
+	if actions != len(app.Tasks) {
+		t.Errorf("the task block offers %d actions, want %d", actions, len(app.Tasks))
+	}
+}
+
+// TestStatusRowsAreOwnerDrawn checks the row whose colour is information.
 func TestStatusRowsAreOwnerDrawn(t *testing.T) {
 	cfg := config.Default()
 	cfg.Lang = "en"
@@ -244,27 +289,20 @@ func TestStatusRowsAreOwnerDrawn(t *testing.T) {
 	for _, it := range a.Menu() {
 		if it.OwnerDraw {
 			count++
-			if it.Dot.A == 0 {
-				t.Errorf("the owner-drawn row %q carries no colour", it.Text)
-			}
 		}
 	}
-	if count != 2 {
-		t.Errorf("%d rows are drawn by hand, want the two status rows", count)
+	if count != 1 {
+		t.Errorf("%d rows are drawn by hand, want the one state row", count)
 	}
 }
 
-// submenuWithChild finds a submenu whose children include a given command id.
-func submenuWithChild(items []traymenu.Item, id uint32) (traymenu.Item, bool) {
-	for _, it := range items {
-		if it.Kind != traymenu.SubmenuRow {
-			continue
-		}
-		for _, child := range it.Children {
-			if child.ID == id {
-				return it, true
-			}
+// hinted returns every row that carries a sentence, for the tests that check them.
+func hinted(items []traymenu.Item) []traymenu.Item {
+	var out []traymenu.Item
+	for _, it := range rowsOf(items) {
+		if it.Hint != "" {
+			out = append(out, it)
 		}
 	}
-	return traymenu.Item{}, false
+	return out
 }

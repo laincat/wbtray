@@ -9,13 +9,10 @@ import (
 	"wbtray/internal/app"
 	"wbtray/internal/config"
 	"wbtray/internal/raster"
-	"wbtray/internal/theme"
 	"wbtray/internal/traymenu"
 )
 
-// pip is the colour the measurement tests give a row. Its value does not matter to a
 // width; only whether a row has one.
-var pip = theme.Neon().OK
 
 // TestOwnerDrawRowsAreMeasuredNotGuessed is the bug that made the whole menu wide.
 //
@@ -35,8 +32,8 @@ func TestOwnerDrawRowsAreMeasuredNotGuessed(t *testing.T) {
 		t.Skip("no screen DC to measure text with")
 	}
 
-	short := traymenu.Status("OK", "1/1", pip, true)
-	long := traymenu.Status("OK", "127.0.0.1:7863", pip, true)
+	short := traymenu.Status("credits", "1/1", "", pip, true)
+	long := traymenu.Status("credits", "127.0.0.1:7863", "", pip, true)
 
 	p.add(short)
 	shortWidth := p.width
@@ -67,8 +64,8 @@ func TestOwnerDrawRowsLeaveRoomForThePip(t *testing.T) {
 		t.Skip("no screen DC to measure text with")
 	}
 
-	withPip := traymenu.Status("OK", "1/1", pip, true)
-	withoutPip := traymenu.Status("OK", "1/1", raster.RGBA{}, true)
+	withPip := traymenu.Status("credits", "1/1", "", pip, true)
+	withoutPip := traymenu.Status("credits", "1/1", "", raster.RGBA{}, true)
 
 	p.add(withoutPip)
 	plain := p.width

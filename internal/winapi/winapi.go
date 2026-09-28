@@ -116,6 +116,8 @@ var (
 	ProcEllipse               = gdi32.NewProc("Ellipse")
 	ProcCreatePen             = gdi32.NewProc("CreatePen")
 	ProcGetStockObject        = gdi32.NewProc("GetStockObject")
+	ProcDrawTextW             = user32.NewProc("DrawTextW")
+	ProcGetClientRect         = user32.NewProc("GetClientRect")
 
 	// The read side of the clipboard, used by the tests to check what a second
 	// program would see.
@@ -259,6 +261,21 @@ func CopyUTF16(dst []uint16, s string) {
 
 // LowWord extracts the low 16 bits of a message parameter (menu / item ids).
 func LowWord(v uintptr) uint32 { return uint32(v & 0xffff) }
+
+// The DrawTextW flags this program uses, named where the binding is.
+const (
+	// DtLeft aligns text to the left edge of the rectangle.
+	DtLeft = 0x00000000
+	// DtVCenter centres a single line vertically.
+	DtVCenter = 0x00000004
+	// DtSingleLine draws one line, so a long sentence does not wrap into a block.
+	DtSingleLine = 0x0020
+	// DtNoPrefix stops an ampersand in the text being read as a keyboard prefix.
+	DtNoPrefix = 0x0800
+	// DtEndEllipsis shortens a sentence that does not fit, rather than clipping it
+	// mid-character.
+	DtEndEllipsis = 0x00008000
+)
 
 // CFUnicodeText is the clipboard format for a UTF-16 string.
 const CFUnicodeText = 13
