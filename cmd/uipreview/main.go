@@ -38,6 +38,8 @@ func main() {
 	size := flag.String("size", "1180x760", "window size as WxH")
 	tab := flag.String("tab", "all", "which page: a tab name, or all for a sheet")
 	light := flag.Bool("light", false, "draw the light tone")
+	palette := flag.String("palette", theme.DefaultName,
+		"which palette: "+strings.Join(theme.Names, ", "))
 	dpi := flag.Float64("dpi", 1, "scale factor to render at")
 	flag.Parse()
 
@@ -46,7 +48,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "uipreview: %v\n", err)
 		os.Exit(1)
 	}
-	pal := theme.On(*light)
+	pal := theme.ForName(*palette, *light)
 
 	if *tab != "all" {
 		if err := writePage(*out, ui.Tab(*tab), w, h, pal, *dpi); err != nil {

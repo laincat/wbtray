@@ -29,7 +29,7 @@ func bigPool() status.Snapshot {
 func testView(style, metric string, size int, snap status.Snapshot) View {
 	return View{
 		Size: size, Style: style, Metric: metric, Lang: "en",
-		Palette: theme.Dark(), Snap: snap,
+		Palette: theme.On(false), Snap: snap,
 	}
 }
 
@@ -96,7 +96,7 @@ func TestTheFigureIsDrawnNotJustChosen(t *testing.T) {
 		box := float64(size * super)
 		m := float64(figureInsetPx * super)
 		c := raster.New(int(box), int(box))
-		drawFigure(c, text, m, m, box-2*m, box-2*m, theme.Dark().Ink)
+		drawFigure(c, text, m, m, box-2*m, box-2*m, theme.On(false).Ink)
 		if inkCount(c) == 0 {
 			t.Errorf("at %d: the figure %q was chosen but drew nothing", size, text)
 		}

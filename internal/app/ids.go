@@ -58,6 +58,8 @@ const (
 	IDOpenGatewayConfig = 2619
 	// IDCopyKey copies the gateway API key to the clipboard.
 	IDCopyKey = 2620
+	// IDAppIconBase plus the index of a mark in config.AppIcons.
+	IDAppIconBase = 2650
 
 	// Gateway process commands.
 	IDGatewayStart     = 2700

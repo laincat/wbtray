@@ -196,9 +196,13 @@ func handleCommand(a *app.App, lc *lifecycle, win *tray.Window, ev traymenu.Even
 		}
 		return
 	case ev.ID >= app.IDThemeBase && ev.ID < app.IDLangBase:
-		all := theme.All(systemAccent())
-		if i := int(ev.ID - app.IDThemeBase); i < len(all) {
-			a.SetTheme(all[i].Name)
+		if i := int(ev.ID - app.IDThemeBase); i < len(theme.Names) {
+			a.SetTheme(theme.Names[i])
+		}
+		return
+	case ev.ID >= app.IDAppIconBase && ev.ID < app.IDAppIconBase+uint32(len(config.AppIcons)):
+		if i := int(ev.ID - app.IDAppIconBase); i < len(config.AppIcons) {
+			a.SetAppIcon(config.AppIcons[i])
 		}
 		return
 	case ev.ID >= app.IDLangBase && ev.ID < app.IDLangBase+2:

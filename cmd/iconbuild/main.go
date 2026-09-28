@@ -21,6 +21,7 @@ import (
 	"image"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"wbtray/internal/iconstyle"
 	"wbtray/internal/status"
@@ -33,15 +34,17 @@ var sizes = []int{16, 20, 24, 32, 48, 64, 128, 256}
 
 func main() {
 	arch := flag.String("arch", "amd64", "Windows architecture for the .syso (amd64, arm64, 386)")
+	variant := flag.String("variant", "gauge",
+		"which mark to draw: "+strings.Join(iconstyle.AppVariants, ", "))
 	flag.Parse()
 
-	if err := run(*arch); err != nil {
+	if err := run(*arch, *variant); err != nil {
 		fmt.Fprintf(os.Stderr, "iconbuild: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(arch string) error {
+func run(arch, variant string) error {
 	machine, ok := map[string]uint16{
 		"amd64": winres.MachineAMD64,
 		"arm64": winres.MachineARM64,
@@ -62,7 +65,7 @@ func run(arch string) error {
 	// size requires.
 	rendered := map[int]image.Image{}
 	for _, size := range sizes {
-		rendered[size] = iconstyle.DrawAppMark(size).Image()
+		rendered[size] = iconstyle.DrawAppMark(size, variant).Image()
 	}
 	// The encoder decides PNG or DIB per size, which is a rule of the format
 	// rather than a choice: an icon whose smaller images are PNG is not rejected,

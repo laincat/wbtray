@@ -320,6 +320,18 @@ func (a *App) SetTheme(name string) {
 	a.refreshIcon()
 }
 
+// SetAppIcon records which mark the executable should carry.
+//
+// It is a build-time choice rather than a run-time one: the icon is a PE resource,
+// and replacing it in a running file is not something a process can do to itself.
+// The preference is written here and the build reads it.
+func (a *App) SetAppIcon(name string) {
+	a.mu.Lock()
+	a.cfg.AppIcon = config.NormalizeAppIcon(name)
+	a.mu.Unlock()
+	a.save()
+}
+
 // SetLang saves the language.
 func (a *App) SetLang(lang string) {
 	a.mu.Lock()

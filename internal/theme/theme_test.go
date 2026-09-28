@@ -120,8 +120,8 @@ func TestTheStateColoursAreDistinct(t *testing.T) {
 func TestRetiredNamesLandOnThePalette(t *testing.T) {
 	for _, name := range []string{"system", "mono", "neon", "panel", "amber",
 		"candy", "light", "plain", "grey", "", "nonsense"} {
-		if got := Normalize(name); got != Name {
-			t.Errorf("Normalize(%q) = %q, want %q", name, got, Name)
+		if got := Normalize(name); got != DefaultName {
+			t.Errorf("Normalize(%q) = %q, want %q", name, got, DefaultName)
 		}
 	}
 }
@@ -146,16 +146,16 @@ func TestParseAppearance(t *testing.T) {
 
 // TestResolveFollowsTheSystem is the behaviour the appearance setting exists for.
 func TestResolveFollowsTheSystem(t *testing.T) {
-	if got := Resolve(Name, Auto, true, Accent{}); got.Light {
+	if got := Resolve(DefaultName, Auto, true, Accent{}); got.Light {
 		t.Error("a dark system resolved to the light tone")
 	}
-	if got := Resolve(Name, Auto, false, Accent{}); !got.Light {
+	if got := Resolve(DefaultName, Auto, false, Accent{}); !got.Light {
 		t.Error("a light system resolved to the dark tone")
 	}
-	if got := Resolve(Name, AlwaysDark, false, Accent{}); got.Light {
+	if got := Resolve(DefaultName, AlwaysDark, false, Accent{}); got.Light {
 		t.Error("always-dark on a light system resolved to the light tone")
 	}
-	if got := Resolve(Name, AlwaysLight, true, Accent{}); !got.Light {
+	if got := Resolve(DefaultName, AlwaysLight, true, Accent{}); !got.Light {
 		t.Error("always-light on a dark system resolved to the dark tone")
 	}
 }

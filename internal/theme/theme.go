@@ -1,21 +1,3 @@
-// Package theme holds the palette the tray draws with.
-//
-// It is one design in two tones, the way Codex's own interface is: the marks are
-// neutral — near-black ink on white, near-white ink on near-black — and colour is
-// reserved for the two or three states that have to be noticed. That is the whole
-// idea, and it is worth stating because the obvious alternative is the one this
-// replaced: a palette that wears the operator's Windows accent looks like it
-// belongs beside the system's own icons, until the accent is a muddy brown or a
-// dark olive, at which point every mark in the tray is a muddy brown or a dark
-// olive and no amount of contrast correction can make it pleasant.
-//
-// So there is no accent-following palette and no colour arithmetic. Both tones are
-// written down, taken from the interface this is meant to sit beside, and each is
-// legible by construction rather than by adjustment.
-//
-// Nothing here draws a background for the icon. The tray's marks sit directly on
-// the taskbar; the surfaces below are for the window, which is a surface of its
-// own and needs one.
 package theme
 
 import (
@@ -24,6 +6,19 @@ import (
 
 	"wbtray/internal/raster"
 )
+
+// The palettes the tray can be dressed in.
+//
+// They are all one design in different tones: the marks are neutral, colour is
+// reserved for the states that have to be noticed, and every ink is checked against
+// every surface it is drawn on. What changes is which neutral — a warm black, a cool
+// black, a plain one, and the light rendering of each.
+//
+// The first is the one this is modelled on, and it is the default because it is the
+// one the rest were derived from. The others exist because "which neutral" is a
+// question about taste rather than about correctness, and a program that answers it
+// for the operator with no way to disagree is a program that looks wrong to half the
+// people who use it.
 
 // Appearance is the follow-the-system setting.
 type Appearance string
@@ -77,94 +72,71 @@ func AppearanceLabel(a Appearance, lang string) string {
 
 // Accent is kept for the front end, which reads the Windows accent at startup.
 //
-// Nothing in this package uses it any more. It is here because removing the call
-// would mean the registry read, the winapi function and its test all had to go at
-// once, and the honest state of affairs is that the tray no longer follows the
-// system accent. The type stays until that read is removed on its own.
+// Nothing in this package uses it. It is here because removing the call would mean
+// the registry read, the winapi function and its test all had to go at once, and the
+// honest state of affairs is that the tray no longer follows the system accent: an
+// accent is chosen to be a highlight, not to be a status mark, and a muddy one makes
+// every mark in the tray muddy.
 type Accent struct {
 	Colour raster.RGBA
 	Known  bool
 }
 
-// Name is the palette identifier written to the configuration.
-//
-// There is one palette now. The names of the retired ones are still accepted, and
-// map here, so a configuration written by an earlier build opens.
-const Name = "codex"
+// The palette names, as written to the configuration.
+const (
+	// NameNeutral is the one this design was drawn from: a plain warm-neutral grey
+	// ramp with near-black and near-white ink.
+	NameNeutral = "neutral"
+	// NameCool is the same design on a blue-leaning grey: the blacks read as slate
+	// rather than as warm charcoal.
+	NameCool = "cool"
+	// NameWarm is the same design on a brown-leaning grey, which reads as sepia
+	// rather than as charcoal.
+	NameWarm = "warm"
+	// NameContrast is the same design with the surfaces pulled apart: a darker
+	// background and a lighter card, which is what makes a window read as raised.
+	NameContrast = "contrast"
+)
 
-// Palette is one tone of the design: its surfaces, its text, and the four colours
-// a state can be.
-//
-// The field names are the ones the interface this follows uses, because they are
-// the names its own designers agreed on and inventing a second vocabulary for the
-// same roles is how two parts of a program end up disagreeing about what "muted"
-// means.
-type Palette struct {
-	// Name is the stable identifier written to the configuration.
-	Name string
-	// Light records which tone this is, which is what a caller asks when it has to
-	// choose a colour it cannot get from the palette.
-	Light bool
+// Names is the palette list, in menu order.
+var Names = []string{NameNeutral, NameCool, NameWarm, NameContrast}
 
-	// Surfaces, from the furthest back to the closest: the window, its sidebar,
-	// a card, a control inside a card, and the two hairline strengths.
-	BG         raster.RGBA
-	Rail       raster.RGBA
-	Surface    raster.RGBA
-	Raised     raster.RGBA
-	RaisedHi   raster.RGBA
-	Border     raster.RGBA
-	BorderSoft raster.RGBA
+// DefaultName is the palette a first run uses.
+const DefaultName = NameNeutral
 
-	// Text, at three levels: the reading, the label, and the hint.
-	Text  raster.RGBA
-	Muted raster.RGBA
-	Faint raster.RGBA
-
-	// The marks. Ink and InkDim are the tray icon's own names for the two text
-	// levels — a glyph on a taskbar is text at heart — and they are set from the
-	// same source so the icon and the window cannot drift apart.
-	Ink    raster.RGBA
-	InkDim raster.RGBA
-
-	// Accent is the colour of anything the operator can act on. In this design it
-	// is neutral, which is what keeps the tray quiet beside the system's icons.
-	Accent    raster.RGBA
-	AccentInk raster.RGBA
-	AccentHi  raster.RGBA
-
-	// The four states. OK, Warn and Bad are the tray icon's names for green, amber
-	// and red; Blue is for the one state that is busy rather than broken.
-	OK   raster.RGBA
-	Warn raster.RGBA
-	Bad  raster.RGBA
-	Blue raster.RGBA
-	// Green is the name this design's own stylesheet gives the healthy colour. It
-	// is kept beside OK rather than instead of it because the icon asks for OK and
-	// the window asks for Green, and they are the same value.
-	Green raster.RGBA
+// All returns every palette in its dark tone, which is what a preview sheet wants.
+func All(accent Accent) []Palette {
+	out := make([]Palette, 0, len(Names))
+	for _, n := range Names {
+		out = append(out, ForName(n, false))
+	}
+	return out
 }
 
-// All returns every palette, in menu order.
+// ByName returns a palette by name, falling back to the default.
+func ByName(name string, accent Accent) Palette {
+	return ForName(Normalize(name), false)
+}
+
+// Normalize maps a configuration value onto a palette that exists.
 //
-// One entry, because the design is one thing. The list remains because the menu and
-// the preview sheet both iterate it, and because a second palette is the obvious
-// next thing to want.
-func All(accent Accent) []Palette { return []Palette{Dark(), Light()} }
-
-// Names returns every palette name.
-func Names() []string { return []string{Name} }
-
-// ByName returns the palette for a configured name, ignoring which tone was asked
-// for: the tone is the appearance's business, not the name's.
-func ByName(name string, accent Accent) Palette { return Dark() }
-
-// Normalize maps a configuration value onto the palette that exists.
-//
-// Every retired name lands here, including "system": the palette that wore the
-// operator's accent is gone, and a configuration asking for it gets this design
-// rather than a broken one.
-func Normalize(name string) string { return Name }
+// Every retired name lands on the default, including "codex" — which this was called
+// while there was one palette — and "system", which described a palette that wore the
+// operator's accent and is gone.
+func Normalize(name string) string {
+	s := strings.ToLower(strings.TrimSpace(name))
+	for _, n := range Names {
+		if s == n {
+			return n
+		}
+	}
+	switch s {
+	case "codex", "system", "mono", "monochrome", "plain", "grey", "gray",
+		"white", "light", "neon", "panel", "amber", "candy", "":
+		return DefaultName
+	}
+	return DefaultName
+}
 
 // Label is the palette's name in the menu's language.
 func (p Palette) Label(lang string) string {
@@ -181,6 +153,34 @@ func (p Palette) Label(lang string) string {
 	return "Dark"
 }
 
+// VariantLabel is the palette's own name, which is what a chooser needs: a list of
+// four rows all labelled "Dark" would be four rows nobody could choose between.
+func VariantLabel(name, lang string) string {
+	zh := lang == "zh"
+	switch name {
+	case NameCool:
+		if zh {
+			return "冷灰"
+		}
+		return "Cool"
+	case NameWarm:
+		if zh {
+			return "暖灰"
+		}
+		return "Warm"
+	case NameContrast:
+		if zh {
+			return "高对比"
+		}
+		return "Contrast"
+	default:
+		if zh {
+			return "标准"
+		}
+		return "Neutral"
+	}
+}
+
 // State returns the colour a health reading is drawn in.
 func (p Palette) State(s int) raster.RGBA {
 	switch s {
@@ -195,10 +195,10 @@ func (p Palette) State(s int) raster.RGBA {
 
 // Taskbar is the surface the icon is read against.
 //
-// It is stated rather than sampled, because the icon's legibility is a decision
-// about a known background and sampling would make it depend on whichever window
-// happened to be open behind the notification area. A mark that has to knock a hole
-// in itself — the mascot's face — draws this.
+// It is stated rather than sampled, because the icon's legibility is a decision about
+// a known background and sampling would make it depend on whichever window happened
+// to be open behind the notification area. A mark that has to knock a hole in itself
+// — the mascot's face — draws this.
 func (p Palette) Taskbar() raster.RGBA {
 	if p.Light {
 		return raster.Hex("#f3f3f3")
@@ -206,7 +206,7 @@ func (p Palette) Taskbar() raster.RGBA {
 	return raster.Hex("#1f1f1f")
 }
 
-// Resolve picks the tone to draw with.
+// Resolve picks the tone and the palette to draw with.
 func Resolve(name string, appearance Appearance, systemDark bool, accent Accent) Palette {
 	light := false
 	switch appearance {
@@ -217,89 +217,226 @@ func Resolve(name string, appearance Appearance, systemDark bool, accent Accent)
 	default:
 		light = !systemDark
 	}
-	return On(light)
+	return ForName(Normalize(name), light)
 }
 
-// On returns the palette for a tone.
-func On(light bool) Palette {
+// On returns the default palette in a tone, which is what a caller that has no
+// preference wants.
+func On(light bool) Palette { return ForName(DefaultName, light) }
+
+// ForName returns one palette in one tone.
+func ForName(name string, light bool) Palette {
+	base := rampFor(Normalize(name))
 	if light {
-		return Light()
+		return base.light()
 	}
-	return Dark()
+	return base.dark()
 }
 
-// Dark is the dark tone.
+// ramp is the neutral steps one palette is built from, before the state colours are
+// laid over them.
 //
-// The greys are a warm-neutral ramp from a near-black rail to a raised control,
-// and the ink is near-white rather than white: pure white on a near-black surface
-// glares at the small sizes a tray uses.
-//
-// The four state colours are light and desaturated, because they are read as small
-// marks on a dark background where a saturated colour at full strength reads as a
-// warning when it is only a reading.
-func Dark() Palette {
-	p := Palette{
-		Name:       Name,
-		Light:      false,
-		BG:         raster.Hex("#212121"),
-		Rail:       raster.Hex("#171717"),
-		Surface:    raster.Hex("#262626"),
-		Raised:     raster.Hex("#303030"),
-		RaisedHi:   raster.Hex("#3a3a3a"),
-		Border:     raster.Hex("#3d3d3d"),
-		BorderSoft: raster.Hex("#333333"),
-		Text:       raster.Hex("#ececec"),
-		Muted:      raster.Hex("#a6a6a6"),
-		Faint:      raster.Hex("#9a9a9a"),
-		Accent:     raster.Hex("#ececec"),
-		AccentInk:  raster.Hex("#0d0d0d"),
-		AccentHi:   raster.Hex("#ffffff"),
-		Green:      raster.Hex("#4ecb9d"),
-		Warn:       raster.Hex("#fbbf24"),
-		Bad:        raster.Hex("#f87171"),
-		Blue:       raster.Hex("#7aa2ff"),
+// Stating the surfaces as a ramp rather than as one list per tone is what keeps four
+// palettes in two tones from being eight unrelated sets of greys: the light tone is
+// derived from the same steps read the other way, so a change to the shape of the
+// ramp reaches every palette at once.
+type ramp struct {
+	name string
+
+	// The dark tone, from the furthest back to the closest: the window, its rail, a
+	// card, a control, a control under the pointer, and the two hairline strengths.
+	bg, rail, surface, raised, raisedHi, border, borderSoft raster.RGBA
+	// The text, at three levels.
+	text, muted, faint raster.RGBA
+
+	// The state colours, dark tone.
+	green, amber, red, blue raster.RGBA
+}
+
+func rampFor(name string) ramp {
+	switch name {
+	case NameCool:
+		return ramp{
+			name:       NameCool,
+			bg:         raster.Hex("#1c1f24"),
+			rail:       raster.Hex("#141719"),
+			surface:    raster.Hex("#22262c"),
+			raised:     raster.Hex("#2b3037"),
+			raisedHi:   raster.Hex("#343a42"),
+			border:     raster.Hex("#394049"),
+			borderSoft: raster.Hex("#2f353d"),
+			text:       raster.Hex("#e8ecf1"),
+			muted:      raster.Hex("#a0a8b3"),
+			faint:      raster.Hex("#939ba6"),
+			green:      raster.Hex("#4ecb9d"),
+			amber:      raster.Hex("#fbbf24"),
+			red:        raster.Hex("#f87171"),
+			blue:       raster.Hex("#7aa2ff"),
+		}
+	case NameWarm:
+		return ramp{
+			name:       NameWarm,
+			bg:         raster.Hex("#211e1a"),
+			rail:       raster.Hex("#191612"),
+			surface:    raster.Hex("#272320"),
+			raised:     raster.Hex("#322d28"),
+			raisedHi:   raster.Hex("#3d3730"),
+			border:     raster.Hex("#463f37"),
+			borderSoft: raster.Hex("#38322b"),
+			text:       raster.Hex("#f0ebe4"),
+			muted:      raster.Hex("#b0a79b"),
+			faint:      raster.Hex("#9e958a"),
+			green:      raster.Hex("#54cfa0"),
+			amber:      raster.Hex("#f5b942"),
+			red:        raster.Hex("#f57f6e"),
+			blue:       raster.Hex("#8aa8f0"),
+		}
+	case NameContrast:
+		return ramp{
+			name:       NameContrast,
+			bg:         raster.Hex("#0d0d0f"),
+			rail:       raster.Hex("#08080a"),
+			surface:    raster.Hex("#1b1b1f"),
+			raised:     raster.Hex("#2a2a30"),
+			raisedHi:   raster.Hex("#3a3a42"),
+			border:     raster.Hex("#4d4d57"),
+			borderSoft: raster.Hex("#33333b"),
+			text:       raster.Hex("#ffffff"),
+			muted:      raster.Hex("#b8b8c2"),
+			faint:      raster.Hex("#9a9aa6"),
+			green:      raster.Hex("#3fe0a0"),
+			amber:      raster.Hex("#ffc933"),
+			red:        raster.Hex("#ff7a7a"),
+			blue:       raster.Hex("#8fb4ff"),
+		}
+	default:
+		return ramp{
+			name:       NameNeutral,
+			bg:         raster.Hex("#212121"),
+			rail:       raster.Hex("#171717"),
+			surface:    raster.Hex("#262626"),
+			raised:     raster.Hex("#303030"),
+			raisedHi:   raster.Hex("#3a3a3a"),
+			border:     raster.Hex("#3d3d3d"),
+			borderSoft: raster.Hex("#333333"),
+			text:       raster.Hex("#ececec"),
+			muted:      raster.Hex("#a6a6a6"),
+			faint:      raster.Hex("#9a9a9a"),
+			green:      raster.Hex("#4ecb9d"),
+			amber:      raster.Hex("#fbbf24"),
+			red:        raster.Hex("#f87171"),
+			blue:       raster.Hex("#7aa2ff"),
+		}
 	}
-	p.Ink, p.InkDim = p.Text, p.Muted
-	p.OK = p.Green
+}
+
+// dark builds the dark tone.
+func (r ramp) dark() Palette {
+	p := Palette{
+		Name: r.name, Light: false,
+		BG: r.bg, Rail: r.rail, Surface: r.surface,
+		Raised: r.raised, RaisedHi: r.raisedHi,
+		Border: r.border, BorderSoft: r.borderSoft,
+		Text: r.text, Muted: r.muted, Faint: r.faint,
+		Accent: r.text, AccentInk: r.bg, AccentHi: raster.Hex("#ffffff"),
+		Green: r.green, Warn: r.amber, Bad: r.red, Blue: r.blue,
+	}
+	p.Ink, p.InkDim, p.OK = p.Text, p.Muted, p.Green
 	return p
 }
 
-// Light is the light tone: the same design the other way round, written out rather
-// than derived. The greys are cool-neutral and the state colours are dark and
-// saturated, which is what makes them read on white.
-func Light() Palette {
+// light builds the light tone of the same palette.
+//
+// It is written out rather than derived by inverting, because a grey ramp inverted
+// channel by channel is not the same ramp read the other way round: the steps are
+// chosen so the surfaces stay the same distance apart, and that is a judgement about
+// contrast rather than arithmetic. The state colours are darkened versions of the
+// dark tone's — dark and saturated, which is what reads on white.
+func (r ramp) light() Palette {
+	lighten := func(c raster.RGBA, t float64) raster.RGBA { return c.Mix(raster.Hex("#ffffff"), t) }
+	tint := func(c raster.RGBA) raster.RGBA { return lighten(c, 0.94) }
+
 	p := Palette{
-		Name:       Name,
-		Light:      true,
-		BG:         raster.Hex("#ffffff"),
-		Rail:       raster.Hex("#f9f9f9"),
+		Name: r.name, Light: true,
+		BG:         tint(r.bg),
+		Rail:       tint(r.rail),
 		Surface:    raster.Hex("#ffffff"),
-		Raised:     raster.Hex("#f4f4f4"),
-		RaisedHi:   raster.Hex("#ececec"),
-		Border:     raster.Hex("#e6e6e6"),
-		BorderSoft: raster.Hex("#f0f0f0"),
+		Raised:     lighten(r.bg, 0.90),
+		RaisedHi:   lighten(r.bg, 0.85),
+		Border:     lighten(r.bg, 0.82),
+		BorderSoft: lighten(r.bg, 0.90),
 		Text:       raster.Hex("#0d0d0d"),
 		Muted:      raster.Hex("#6e6e6e"),
 		Faint:      raster.Hex("#707070"),
 		Accent:     raster.Hex("#0d0d0d"),
 		AccentInk:  raster.Hex("#ffffff"),
 		AccentHi:   raster.Hex("#3d3d3d"),
-		Green:      raster.Hex("#0a7d5c"),
-		Warn:       raster.Hex("#9a4a08"),
-		Bad:        raster.Hex("#b91c1c"),
-		Blue:       raster.Hex("#1d4ed8"),
+		Green:      darken(r.green, 0.62),
+		Warn:       darken(r.amber, 0.55),
+		Bad:        darken(r.red, 0.52),
+		Blue:       darken(r.blue, 0.55),
 	}
-	p.Ink, p.InkDim = p.Text, p.Muted
-	p.OK = p.Green
+	p.Ink, p.InkDim, p.OK = p.Text, p.Muted, p.Green
 	return p
 }
 
-// Contrast is the WCAG contrast ratio between two colours, from 1 to 21.
+// darken moves a colour toward black, which is what makes a pale state colour read on
+// a light surface.
+func darken(c raster.RGBA, t float64) raster.RGBA {
+	mix := func(v uint8) uint8 { return uint8(float64(v) * (1 - t)) }
+	return raster.RGBA{R: mix(c.R), G: mix(c.G), B: mix(c.B), A: c.A}
+}
+
+// Palette is one tone of one palette: its surfaces, its text, and the four colours a
+// state can be.
 //
-// It is still exported and still tested, because both tones make a claim the tests
-// check: every ink in them is legible against the surface it is drawn on. The claim
-// is now about two written-down palettes rather than about an adjustment applied at
-// runtime, but it is the same claim.
+// The field names are the ones the interface this follows uses, because they are the
+// names its own designers agreed on and inventing a second vocabulary for the same
+// roles is how two parts of a program end up disagreeing about what "muted" means.
+type Palette struct {
+	// Name is the stable identifier written to the configuration.
+	Name string
+	// Light records which tone this is.
+	Light bool
+
+	BG         raster.RGBA
+	Rail       raster.RGBA
+	Surface    raster.RGBA
+	Raised     raster.RGBA
+	RaisedHi   raster.RGBA
+	Border     raster.RGBA
+	BorderSoft raster.RGBA
+
+	Text  raster.RGBA
+	Muted raster.RGBA
+	Faint raster.RGBA
+
+	// Ink and InkDim are the tray icon's own names for the two text levels — a glyph
+	// on a taskbar is text at heart — and they are set from the same source so the
+	// icon and the window cannot drift apart.
+	Ink    raster.RGBA
+	InkDim raster.RGBA
+
+	// Accent is the colour of anything the operator can act on. In this design it is
+	// neutral, which is what keeps the tray quiet beside the system's icons.
+	Accent    raster.RGBA
+	AccentInk raster.RGBA
+	AccentHi  raster.RGBA
+
+	// The four states. OK, Warn and Bad are the tray icon's names for green, amber
+	// and red; Blue is for the one state that is busy rather than broken.
+	OK   raster.RGBA
+	Warn raster.RGBA
+	Bad  raster.RGBA
+	Blue raster.RGBA
+	// Green is the name this design's own stylesheet gives the healthy colour.
+	Green raster.RGBA
+}
+
+// IsLight reports whether this is the light tone.
+func (p Palette) IsLight() bool { return p.Light }
+
+// Contrast is the WCAG contrast ratio between two colours, from 1 to 21.
 func Contrast(a, b raster.RGBA) float64 {
 	la, lb := Luminance(a), Luminance(b)
 	if la < lb {

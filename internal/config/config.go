@@ -35,6 +35,15 @@ const (
 	// StyleCat is the mascot, wearing the palette and carrying the health in its
 	// coat.
 	StyleCat = "cat"
+
+	// The program's own marks, also available as tray shapes. They are the same
+	// geometry as the application icon with the plate left off, so an operator who
+	// has chosen a mark for the executable can have the tray wear it too.
+	StyleShield = "shield"
+	StylePrompt = "prompt"
+	StyleWaves  = "waves"
+	StyleNodes  = "nodes"
+	StyleRing   = "ring"
 )
 
 // Styles is the menu order, which is also the order of the preview sheet.
@@ -43,7 +52,10 @@ const (
 // is best at. Then the figure, which says a number and nothing else. Then the
 // mascot, which is an identity rather than a reading and is the one to pick when
 // the tray should be recognisable rather than informative.
-var Styles = []string{StyleGauge, StyleBars, StyleSpark, StyleNumber, StyleCat}
+var Styles = []string{
+	StyleGauge, StyleBars, StyleSpark, StyleNumber, StyleCat,
+	StyleShield, StylePrompt, StyleWaves, StyleNodes, StyleRing,
+}
 
 // Metric names what the tray icon draws, and what the menu's live entries show
 // as text.
@@ -60,6 +72,24 @@ const (
 // Metrics is the menu and settings order.
 var Metrics = []string{MetricAccounts, MetricCredits, MetricRequests, MetricTokens, MetricLatency, MetricTPS, MetricQueue}
 
+// AppIcons are the marks the executable can carry, in menu order.
+//
+// They are the same set the tray styles are not: an application icon is an identity
+// rather than a reading, and these are the identities the product can have. The
+// list is here rather than in the icon package so the configuration and the menu
+// both read it from one place.
+var AppIcons = []string{"gauge", "shield", "prompt", "waves", "nodes", "ring"}
+
+// NormalizeAppIcon maps a name onto one of them.
+func NormalizeAppIcon(s string) string {
+	for _, v := range AppIcons {
+		if v == s {
+			return s
+		}
+	}
+	return AppIcons[0]
+}
+
 // Config is the tray's own configuration.
 type Config struct {
 	// BaseURL is the gateway root, without a trailing slash. The API key is the
@@ -75,7 +105,11 @@ type Config struct {
 
 	Style  string
 	Metric string
-	Lang   string // "zh" or "en"
+	// AppIcon is which mark the executable carries. It is a build-time choice, so
+	// changing it here records the preference and the next build picks it up; the
+	// tray icon, which is drawn at run time, changes immediately.
+	AppIcon string
+	Lang    string // "zh" or "en"
 	// Theme is the palette, shared by the icon, the drawn menu and the monitor
 	// window.
 	Theme string
@@ -108,6 +142,7 @@ func Default() Config {
 		TimeoutSec:       5,
 		Style:            StyleGauge,
 		Metric:           MetricAccounts,
+		AppIcon:          AppIcons[0],
 		Lang:             "zh",
 		Theme:            "system",
 		Appearance:       "auto",
@@ -170,6 +205,8 @@ func apply(cfg *Config, key, value string) {
 		cfg.Style = value
 	case "metric":
 		cfg.Metric = value
+	case "app_icon":
+		cfg.AppIcon = value
 	case "theme":
 		cfg.Theme = value
 	case "appearance":
@@ -230,6 +267,7 @@ func normalize(cfg *Config) {
 	// configuration file written when there were eight styles still opens on the
 	// one that means the same thing.
 	cfg.Style = NormalizeStyle(cfg.Style)
+	cfg.AppIcon = NormalizeAppIcon(cfg.AppIcon)
 	if !validMetric(cfg.Metric) {
 		cfg.Metric = MetricAccounts
 	}
@@ -266,10 +304,15 @@ func validStyle(s string) bool {
 // style today.
 func NormalizeStyle(s string) string {
 	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "gauge", "ring", "plain":
+	case "gauge", "plain":
 		// "plain" was a ring with a break cut out of it; it read as a letter Q at
-		// sixteen pixels, so it is the gauge now.
+		// sixteen pixels.
 		return StyleGauge
+	case "ring":
+		// "ring" used to mean the gauge, because the gauge was the only ring there
+		// was. There is a ring mark now, and a configuration asking for one should
+		// get one.
+		return StyleRing
 	case "bars", "bar":
 		return StyleBars
 	case "spark":
@@ -281,6 +324,14 @@ func NormalizeStyle(s string) string {
 		return StyleNumber
 	case "cat", "mascot":
 		return StyleCat
+	case "shield":
+		return StyleShield
+	case "prompt":
+		return StylePrompt
+	case "waves":
+		return StyleWaves
+	case "nodes":
+		return StyleNodes
 	default:
 		return StyleGauge
 	}
@@ -346,6 +397,7 @@ func Save(path string, cfg Config) error {
 	fmt.Fprintf(&b, "timeout_seconds = %d\n\n", cfg.TimeoutSec)
 	fmt.Fprintf(&b, "style = %s\n", cfg.Style)
 	fmt.Fprintf(&b, "metric = %s\n", cfg.Metric)
+	fmt.Fprintf(&b, "app_icon = %s\n", cfg.AppIcon)
 	fmt.Fprintf(&b, "theme = %s\n", cfg.Theme)
 	fmt.Fprintf(&b, "appearance = %s\n", cfg.Appearance)
 	fmt.Fprintf(&b, "lang = %s\n\n", cfg.Lang)

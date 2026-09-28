@@ -92,7 +92,7 @@ func TestEveryStyleDrawsSomething(t *testing.T) {
 // TestTheIconReactsToHealth is why the icon is drawn rather than shipped: a
 // glance has to distinguish a working gateway from a broken one.
 func TestTheIconReactsToHealth(t *testing.T) {
-	pal := theme.Dark()
+	pal := theme.On(false)
 	healthy := sampleReading()
 	down := status.Snapshot{Reachable: false}
 	for _, style := range config.Styles {
@@ -106,7 +106,7 @@ func TestTheIconReactsToHealth(t *testing.T) {
 
 // TestPausedLooksDifferentFromHealthy checks the third state the icon carries.
 func TestPausedLooksDifferentFromHealthy(t *testing.T) {
-	pal := theme.Dark()
+	pal := theme.On(false)
 	snap := sampleReading()
 	for _, style := range config.Styles {
 		a := Draw(View{Size: 32, Style: style, Metric: config.MetricAccounts, Lang: "en", Palette: pal, Snap: snap})

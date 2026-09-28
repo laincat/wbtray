@@ -308,6 +308,8 @@ func (a *App) settingsRow(cfg config.Config, th theme.Palette, lang string) tray
 			}),
 		traymenu.Submenu(i18n.T(lang, "menu.metric"), i18n.T(lang, "hint.metric_block"),
 			metricItems(cfg, lang)),
+		traymenu.Submenu(i18n.T(lang, "menu.appicon"), i18n.T(lang, "hint.appicon"),
+			appIconItems(cfg, lang)),
 		traymenu.Separator(),
 		traymenu.Check(IDTrayAutoStart, i18n.T(lang, "menu.autostart"),
 			i18n.T(lang, "hint.tray_autostart"), a.TrayAutoStart()),
@@ -383,7 +385,15 @@ func (a *App) previewFor(style string, th theme.Palette) *raster.Canvas {
 // is the question that was always underneath it: which way round the design is
 // drawn, since an ink that reads on a dark taskbar is invisible on a light one.
 func (a *App) paletteItems(cfg config.Config, lang string) []traymenu.Item {
-	out := make([]traymenu.Item, 0, len(theme.Appearances))
+	// The palettes, then the tone they are worn in. Two questions, because they are
+	// two: the palette is which neutral, and the tone is which way round it is.
+	out := make([]traymenu.Item, 0, len(theme.Names)+len(theme.Appearances)+1)
+	for i, name := range theme.Names {
+		out = append(out, traymenu.Radio(uint32(IDThemeBase+i),
+			theme.VariantLabel(name, lang), i18n.T(lang, "hint.theme_pick"),
+			cfg.Theme == name))
+	}
+	out = append(out, traymenu.Separator())
 	for i, ap := range theme.Appearances {
 		out = append(out, traymenu.Radio(uint32(IDAppearanceBase+i),
 			theme.AppearanceLabel(ap, lang), i18n.T(lang, "hint.appearance"),
@@ -399,6 +409,22 @@ func metricItems(cfg config.Config, lang string) []traymenu.Item {
 	for i, m := range config.Metrics {
 		out = append(out, traymenu.Radio(uint32(IDMetricBase+i), i18n.T(lang, "metric."+m),
 			hint, cfg.Metric == m))
+	}
+	return out
+}
+
+// appIconItems is which mark the executable carries.
+//
+// The choice is a build-time one — the icon is a PE resource — so this records the
+// preference and the next build picks it up. The hint says so, because a menu that
+// appears to change something and does not is worse than one that explains why it
+// cannot yet.
+func appIconItems(cfg config.Config, lang string) []traymenu.Item {
+	out := make([]traymenu.Item, 0, len(config.AppIcons))
+	for i, name := range config.AppIcons {
+		out = append(out, traymenu.Radio(uint32(IDAppIconBase+i),
+			i18n.T(lang, "appicon."+name), i18n.T(lang, "hint.appicon_pick"),
+			cfg.AppIcon == name))
 	}
 	return out
 }

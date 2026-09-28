@@ -58,6 +58,12 @@ func Draw(v View) *raster.Canvas {
 		drawNumber(c, v, mark)
 	case "cat":
 		drawCat(c, v, mark)
+	case "shield", "prompt", "waves", "nodes", "ring":
+		// The program's own marks, available as tray styles so they can be looked at
+		// live rather than only in a sheet. Drawn bare: a tray icon has no plate, so
+		// the mark goes straight onto the taskbar in the ink the palette has already
+		// checked against it, with the health colour as its accent.
+		drawIdentity(c, v, mark)
 	default:
 		drawGauge(c, v, mark)
 	}
@@ -74,6 +80,29 @@ func markColour(v View) raster.RGBA {
 		return v.Palette.InkDim
 	}
 	return v.Palette.State(int(v.Snap.Health()))
+}
+
+// drawIdentity draws one of the program's marks as a tray icon.
+//
+// It is the same geometry as the application icon with the plate left off. The ink
+// is the palette's text colour and the accent is the health colour, which is what
+// keeps it a reading as well as an identity: the shape says which mark it is, and
+// the colour says how the gateway is doing.
+//
+// The mark is drawn in a box of its own and then drawn onto the icon, because the
+// marks fill the canvas they are given and the icon's own box is inset from its
+// edge. The sub-canvas is the icon's supersampled size, not the output size, so the
+// mark is anti-aliased by the same downsample as everything else.
+func drawIdentity(c *raster.Canvas, v View, mark raster.RGBA) {
+	x, y, w, h := box(c)
+	side := int(w)
+	if side < 1 {
+		return
+	}
+	sub := raster.New(side, side)
+	DrawMark(sub, v.Style, v.Palette.Ink, mark)
+	c.DrawCanvas(sub, int(x), int(y+(h-float64(side))/2), 1)
+	pauseBand(c, v)
 }
 
 // boxInset is the margin a shape keeps inside the icon, as a fraction of its
