@@ -61,6 +61,11 @@ type Account struct {
 	Reason     string    `json:"reason"`
 	DisabledBy string    `json:"disabled_reason"`
 	Breaker    int       `json:"breaker_fails"`
+
+	// LastUsed is when the account last served a request, which decides which
+	// account the tray calls the current one. It is filled by UnmarshalJSON from
+	// the nested token usage the gateway sends.
+	LastUsed time.Time
 }
 
 // Usage is the usage snapshot, reduced to what fits in a tray.

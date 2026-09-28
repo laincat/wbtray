@@ -59,13 +59,14 @@ var zh = Strings{
 	"copy.done": "已复制：%s",
 	"copy.none": "未设置",
 
-	"state.credits":    "积分",
+	"state.accounts":   "账号",
 	"state.offline":    "离线",
 	"state.paused":     "已暂停",
 	"state.badkey":     "密钥无效",
 	"state.noaccounts": "无账号",
 
 	"hint.state":              "网关正常：%d/%d 个账号可用，%d 个在途请求",
+	"hint.state_account":      "当前服务账号是「%s」；池内 %d/%d 可用，%d 个在途请求",
 	"hint.offline":            "无法连接 %s：网关进程未运行，或端口未监听",
 	"hint.paused":             "刷新已暂停，显示的是最后一次读取的数据",
 	"hint.badkey":             "网关在运行，但拒绝了当前 API Key；请检查 wbtray.conf 或网关自己的 config.json",
@@ -257,13 +258,14 @@ var en = Strings{
 	"copy.done": "Copied %s",
 	"copy.none": "not set",
 
-	"state.credits":    "credits",
+	"state.accounts":   "accounts",
 	"state.offline":    "offline",
 	"state.paused":     "paused",
 	"state.badkey":     "bad key",
 	"state.noaccounts": "no accounts",
 
 	"hint.state":              "The gateway is serving: %d of %d accounts ready, %d requests in flight",
+	"hint.state_account":      "Serving with %s; %d of %d accounts ready, %d requests in flight",
 	"hint.offline":            "Cannot reach %s: the gateway process is not running, or nothing is listening on that port",
 	"hint.paused":             "Refreshing is paused; what is shown was read before the pause",
 	"hint.badkey":             "The gateway is running and rejected the API key. Check wbtray.conf or the gateway config.json",

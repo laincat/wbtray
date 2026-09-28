@@ -157,12 +157,13 @@ func describe(items []traymenu.Item) string {
 	return out
 }
 
-// TestStateRowIsAColourAndACreditTotal checks the one readout the menu opens with.
+// TestStateRowNamesTheCurrentAccount checks the one readout the menu opens with.
 //
-// It used to be two rows of labels: "wbtray · healthy" and "accounts". The pair that
-// answers anything is the health colour and the credits behind it, and the words were
-// occupying the width of every other row.
-func TestStateRowIsAColourAndACreditTotal(t *testing.T) {
+// It used to be two rows of labels: "wbtray · healthy" and "accounts". What answers
+// anything is the health colour, the account the gateway is serving with, and its
+// balance: a pool has several accounts, and which one is answering is the question the
+// header is asked.
+func TestStateRowNamesTheCurrentAccount(t *testing.T) {
 	server := newFakePanel(t)
 	defer server.Close()
 
@@ -181,11 +182,13 @@ func TestStateRowIsAColourAndACreditTotal(t *testing.T) {
 	if !head.OwnerDraw {
 		t.Error("the state row is not drawn by hand, so its colour would be dimmed")
 	}
-	if head.Value != "21,000" {
-		t.Errorf("the state row shows %q, want the credit total", head.Value)
+	// The fixture's first account is the one with nothing wrong with it, and nothing
+	// has served anything yet, so it is the current one.
+	if head.Value != "12,000" {
+		t.Errorf("the state row shows %q, want the current account's balance", head.Value)
 	}
-	if head.Text != i18n.T("en", "state.credits") {
-		t.Errorf("the state row says %q, want the credit label", head.Text)
+	if head.Text != "laincat" {
+		t.Errorf("the state row says %q, want the current account's name", head.Text)
 	}
 	if head.Hint == "" {
 		t.Error("the state row explains nothing on hover")

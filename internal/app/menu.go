@@ -86,9 +86,24 @@ func (a *App) stateRow(snap status.Snapshot, paused bool, cfg config.Config, th 
 		text = i18n.T(lang, "state.noaccounts")
 		hint = i18n.T(lang, "hint.noaccounts")
 	default:
-		text = i18n.T(lang, "state.credits")
-		value = i18n.Num(snap.CreditTotal())
-		hint = i18n.T(lang, "hint.state", snap.Ready(), snap.Total, snap.InFlight())
+		// The name of the account the gateway is serving with, rather than a word
+		// like "credits": a pool has several accounts and the interesting question
+		// is which one is answering, which the value column answers with its
+		// balance.
+		if acct, ok := snap.Current(); ok {
+			name := acct.Nickname
+			if name == "" {
+				name = acct.UID
+			}
+			text = name
+			value = i18n.Num(acct.Credits)
+			hint = i18n.T(lang, "hint.state_account",
+				name, snap.Ready(), snap.Total, snap.InFlight())
+		} else {
+			text = i18n.T(lang, "state.accounts")
+			value = fmt.Sprintf("%d/%d", snap.Ready(), snap.Total)
+			hint = i18n.T(lang, "hint.state", snap.Ready(), snap.Total, snap.InFlight())
+		}
 	}
 	return traymenu.Status(text, value, hint, dot, true)
 }
