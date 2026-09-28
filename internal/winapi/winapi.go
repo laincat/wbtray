@@ -51,6 +51,7 @@ var (
 	ProcInvalidateRect      = user32.NewProc("InvalidateRect")
 	ProcUpdateWindow        = user32.NewProc("UpdateWindow")
 	ProcIsWindowVisible     = user32.NewProc("IsWindowVisible")
+	ProcSetCursor           = user32.NewProc("SetCursor")
 	ProcAdjustWindowRectEx  = user32.NewProc("AdjustWindowRectEx")
 	ProcFillRect            = user32.NewProc("FillRect")
 	ProcReleaseCapture      = user32.NewProc("ReleaseCapture")

@@ -53,6 +53,23 @@ func run(cfg config.Config, cfgPath string) error {
 	// is the first moment at which nothing is holding it.
 	install.CleanUpPrevious()
 	lc := &lifecycle{app: a, layout: layoutFor()}
+	if win != nil {
+		// The window is wired here rather than where it was created, because its
+		// actions touch the gateway's installation and the lifecycle that describes
+		// it does not exist yet at that point.
+		win.SetActions(windowActions(a, lc, win))
+		tray.SetConfigPath(func() (string, bool) {
+			return configPathForGateway(lc.layout), true
+		})
+		// The window is a view of the gateway, so opening it is the moment to read
+		// the pages it shows. Reading on the way in means the operator never sees an
+		// empty state for a page that has data.
+		win.OnShow(func() {
+			ctx, cancel := contextWithTimeout(30 * time.Second)
+			defer cancel()
+			loadWindowData(ctx, a, win)
+		})
+	}
 	a.SetGatewayVersion(lc.layout.InstalledGatewayVersion())
 	a.SetGatewayInstalled(lc.layout.Present())
 	a.SetTrayVersion(version)

@@ -35,6 +35,10 @@ type TextItem struct {
 	Size   float64
 	Weight int
 	Right  bool
+	// Centre centres the string on X, which is what a button label needs. Right and
+	// Centre are exclusive; a caller that sets both gets Right, which is at least
+	// deterministic.
+	Centre bool
 	// Colour is the text colour as 0x00BBGGRR, which is the order GDI takes.
 	Colour uint32
 }
@@ -167,6 +171,11 @@ func (t *TextRenderer) Draw(c *raster.Canvas, items []TextItem, dpi float64) *ra
 			// measured once the font is selected.
 			w := MeasureText(t.hdc, it.S)
 			x -= w
+		} else if it.Centre {
+			// The same measurement, half of it: a label centred on a button's
+			// midpoint, which is where the layout put the click target.
+			w := MeasureText(t.hdc, it.S)
+			x -= w / 2
 		}
 		// The Y the layout states is the top of the text box; TextOutW takes the
 		// top of the character cell, which is what a caller writing a layout wants.
