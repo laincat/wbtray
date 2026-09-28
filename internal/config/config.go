@@ -78,7 +78,7 @@ var Metrics = []string{MetricAccounts, MetricCredits, MetricRequests, MetricToke
 // rather than a reading, and these are the identities the product can have. The
 // list is here rather than in the icon package so the configuration and the menu
 // both read it from one place.
-var AppIcons = []string{"gauge", "shield", "prompt", "waves", "nodes", "ring"}
+var AppIcons = []string{"cat", "gauge", "shield", "prompt", "waves", "nodes", "ring"}
 
 // NormalizeAppIcon maps a name onto one of them.
 func NormalizeAppIcon(s string) string {

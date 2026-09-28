@@ -38,6 +38,15 @@ func (t *Icon) wndProc(hwnd uintptr, msg uint32, wparam uintptr, lparam unsafe.P
 			// NIN_KEYSELECT is the keyboard asking for the menu, and
 			// WM_CONTEXTMENU is what a version-4 icon receives for a right
 			// click. Both lead to the same place as a right-button message.
+			//
+			// The panel is opened in the shell's menu place, and the shell's menu is
+			// kept as the fallback for a machine where the panel could not be created:
+			// a tray with no way to reach anything would be worse than a tray with the
+			// wrong-looking menu.
+			if thePanel != nil {
+				thePanel.Toggle()
+				return 0
+			}
 			t.showMenuAtCursor()
 		}
 		return 0

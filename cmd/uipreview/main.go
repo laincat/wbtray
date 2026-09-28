@@ -51,6 +51,13 @@ func main() {
 	pal := theme.ForName(*palette, *light)
 
 	if *tab != "all" {
+		if *tab == "tray" {
+			if err := writeTray(*out, pal, *dpi); err != nil {
+				fmt.Fprintf(os.Stderr, "uipreview: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
 		if err := writePage(*out, ui.Tab(*tab), w, h, pal, *dpi); err != nil {
 			fmt.Fprintf(os.Stderr, "uipreview: %v\n", err)
 			os.Exit(1)
@@ -280,4 +287,37 @@ func sampleSchedule() panel.Schedule {
 
 func sampleConfig() string {
 	return `{"listen":":7863","api_key":"sk-probe","auth_dir":"./auths","state_file":"./data/state.json","global":{"enabled":true},"pool":{"max_in_flight":3,"max_in_flight_global":2,"breaker_threshold":3,"breaker_cooldown":"30m","expiring_soon":"168h"},"session_sticky":{"enabled":true,"ttl":"30m"},"upstream":{"timeout_seconds":120,"header_timeout_seconds":120}}`
+}
+
+// writeTray renders the tray panel, which is the one page whose size is its own
+// rather than the window's.
+func writeTray(path string, pal theme.Palette, dpi float64) error {
+	layout := ui.BuildTray(ui.TrayView{
+		Snap:      sampleSnapshot(),
+		Palette:   pal,
+		Lang:      "zh",
+		Paused:    false,
+		Auto:      true,
+		Installed: true,
+	})
+	c := &layout.Ink
+	items := make([]winapi.TextItem, 0, len(layout.Texts))
+	for _, t := range layout.Texts {
+		items = append(items, winapi.TextItem{
+			S: t.S, X: t.X, Y: t.Y, Size: t.Size,
+			Weight: weightFor(t.Weight),
+			Right:  t.Align == ui.Right,
+			Centre: t.Align == ui.Centre,
+			Colour: winapi.BGR(t.Colour),
+		})
+	}
+	if tr := winapi.NewTextRenderer(layout.W, layout.H); tr != nil {
+		tr.Draw(c, items, dpi)
+		tr.Close()
+	}
+	if err := save(path, c.Image()); err != nil {
+		return err
+	}
+	fmt.Printf("wrote %s (%dx%d, tray panel)\n", path, layout.W, layout.H)
+	return nil
 }

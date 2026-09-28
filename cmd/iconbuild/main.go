@@ -34,7 +34,7 @@ var sizes = []int{16, 20, 24, 32, 48, 64, 128, 256}
 
 func main() {
 	arch := flag.String("arch", "amd64", "Windows architecture for the .syso (amd64, arm64, 386)")
-	variant := flag.String("variant", "gauge",
+	variant := flag.String("variant", "cat",
 		"which mark to draw: "+strings.Join(iconstyle.AppVariants, ", "))
 	flag.Parse()
 

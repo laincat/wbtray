@@ -494,6 +494,15 @@ func (w *Window) Tab() ui.Tab {
 	return w.tab
 }
 
+// SetTab switches the window to a page before it is shown, which is what lets the
+// panel's rows open the console on the page they name rather than on the one it was
+// last left showing.
+func (w *Window) SetTab(t ui.Tab) {
+	w.mu.Lock()
+	w.tab = t
+	w.mu.Unlock()
+}
+
 // Hide takes the window away without destroying it.
 func (w *Window) Hide() {
 	w.mu.Lock()

@@ -53,6 +53,17 @@ func run(cfg config.Config, cfgPath string) error {
 	// is the first moment at which nothing is holding it.
 	install.CleanUpPrevious()
 	lc := &lifecycle{app: a, layout: layoutFor()}
+	// The tray panel. It is created whether or not the console window was, because
+	// they are independent: the panel is what a right click opens and the window is
+	// what a left click does, and a machine where one failed should still have the
+	// other.
+	if panel, err := tray.NewTrayPanel(renderIcon(a)); err != nil {
+		log.Printf("panel: %v", err)
+	} else {
+		defer panel.Close()
+		panel.SetSources(a.Snapshot, a.Theme, panelState(a, lc))
+		panel.SetActions(panelActions(a, lc, win, panel))
+	}
 	if win != nil {
 		// The window is wired here rather than where it was created, because its
 		// actions touch the gateway's installation and the lifecycle that describes

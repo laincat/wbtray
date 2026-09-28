@@ -56,6 +56,25 @@ func runWindowAction(a *app.App, lc *lifecycle, win *tray.Window, action ui.Acti
 		}
 		return "已打开网关目录", nil
 
+	case ui.ActionCopyAddress:
+		if err := copyToClipboard(a.PanelClient().Base()); err != nil {
+			return "", err
+		}
+		return "已复制网关地址", nil
+
+	case ui.ActionCopyKey:
+		// The key is copied rather than shown. A window with a credential drawn in it
+		// is a window that ends up in a screenshot, and the whole reason this is a
+		// button is that it is a value nobody should have to read off a screen.
+		key := a.PanelClient().Key()
+		if key == "" {
+			return "没有可复制的密钥：网关尚未读取到配置", nil
+		}
+		if err := copyToClipboard(key); err != nil {
+			return "", err
+		}
+		return "已复制 API 密钥", nil
+
 	case ui.ActionTogglePause:
 		a.SetPaused(!a.Paused())
 		if a.Paused() {

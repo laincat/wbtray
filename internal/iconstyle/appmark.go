@@ -3,6 +3,7 @@ package iconstyle
 import (
 	"math"
 
+	"wbtray/internal/cat"
 	"wbtray/internal/raster"
 	"wbtray/internal/theme"
 )
@@ -26,11 +27,17 @@ import (
 // them side by side.
 
 // AppVariants are the marks, in the order a chooser shows them.
-var AppVariants = []string{"gauge", "shield", "prompt", "waves", "nodes", "ring"}
+//
+// The cat is first because it is the product's own character: the console's
+// stylesheet uses it, the tray can wear it, and a program with a face is one people
+// recognise in a folder of twenty icons. The rest are shapes.
+var AppVariants = []string{"cat", "gauge", "shield", "prompt", "waves", "nodes", "ring"}
 
 // AppVariantLabel is the mark's name for a chooser.
 func AppVariantLabel(name string) string {
 	switch name {
+	case "cat":
+		return "Cat"
 	case "gauge":
 		return "Gauge"
 	case "shield":
@@ -65,6 +72,8 @@ func DrawAppMark(size int, variant string) *raster.Canvas {
 	accent := p.Green
 	ink := p.Text
 	switch variant {
+	case "cat":
+		markCat(c, ink, accent)
 	case "shield":
 		markShield(c, ink, accent)
 	case "prompt":
@@ -88,6 +97,8 @@ func DrawAppMark(size int, variant string) *raster.Canvas {
 // the file icon keeps its own scheme.
 func DrawMark(c *raster.Canvas, variant string, ink, accent raster.RGBA) {
 	switch variant {
+	case "cat":
+		markCat(c, ink, accent)
 	case "shield":
 		markShield(c, ink, accent)
 	case "prompt":
@@ -199,3 +210,40 @@ func markRing(c *raster.Canvas, ink, accent raster.RGBA) {
 	c.Ring(cx, cy, ri, ro, ink.Mul(0.55))
 	c.Arc(cx, cy, (ri+ro)/2, ro-ri, -90, 40, accent)
 }
+
+// markCat is the mascot: the same silhouette the console's stylesheet and the tray's
+// own mascot style draw, so the three cannot drift apart.
+//
+// The face is a knockout rather than a second colour, which is why the plate's colour
+// is passed as the inner one: the eyes and mouth are whatever is behind the cat, so a
+// version of this drawn on a plate has the plate showing through its face and a
+// version drawn on the taskbar has the taskbar. A fixed colour there would be a third
+// ink in the middle of the mark, and on a status icon a third ink reads as another
+// state rather than as a detail.
+func markCat(c *raster.Canvas, ink, accent raster.RGBA) {
+	s := float64(c.W)
+	// The cat is a silhouette rather than a mark, so it is drawn to the corners of its
+	// box: a shape has a natural centre and a cat shrunk to the same footprint loses
+	// its ears first.
+	inner := plateColour(c)
+	if inner.A == 0 {
+		inner = ink
+	}
+	cat.Draw(c, s*0.06, s*0.10, s*0.88, s*0.84, cat.Palette{
+		Fur:   accent,
+		Inner: inner,
+		// The cheeks are shading rather than a colour: the coat mixed toward the ink.
+		// A fixed pink puts a pair of red spots on the mark, and a red spot on a status
+		// icon reads as an alarm.
+		Blush:    accent.Mix(ink, 0.45),
+		CheeksOn: c.W >= 96,
+	})
+}
+
+// plateColour is the colour under the mark, read back from the canvas.
+//
+// It is read rather than passed because the same geometry is drawn in two places — on
+// the plate and bare on the taskbar — and the face's knockout has to be whatever is
+// actually behind it in each. Reading it from the corner is exact in both cases and
+// costs one pixel lookup.
+func plateColour(c *raster.Canvas) raster.RGBA { return c.At(1, 1) }

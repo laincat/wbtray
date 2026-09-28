@@ -14,12 +14,12 @@ browser, and can start, stop and hide the gateway itself.
 
 ## What the icon shows
 
-The icon is the readout, so the answer to "is anything wrong" does not need a
-click. Its **colour** is the health of the pool, and its **shape** carries
-whichever metric you choose.
+The icon is the readout, so the answer to "is anything wrong" does not need a click.
+Its **colour** is the health of the pool, and its **shape** carries whichever metric
+you choose.
 
-Each of the eight styles, in both palettes, on both appearances, as the taskbar
-actually draws them — 16 pixels, magnified here so the shapes are visible:
+Ten shapes, in four palettes, on both appearances, at the size the taskbar actually
+draws them — 16 pixels, magnified here:
 
 ![Every style at 16 pixels](design/styles-all-16px.png)
 
@@ -30,71 +30,113 @@ actually draws them — 16 pixels, magnified here so the shapes are visible:
 | Red | the gateway cannot be reached |
 | Grey | refreshing is paused |
 
-The icon has no plate. Its mark is drawn straight onto the taskbar over a soft
-halo, which is what lets it sit next to the system's own icons without a block of
-colour around it:
+The icon draws no plate. The mark goes straight onto the taskbar, which is what lets it
+sit beside the system's own icons without a block of colour around it.
 
-| Style | Draws |
+| Shape | Draws |
 |---|---|
-| **Ring** | the metric as a filled gauge, with a tick at the exact value |
+| **Gauge** | the metric as a filled ring |
 | **Bars** | the last four buckets of its history |
 | **Sparkline** | the last twelve buckets as a smoothed curve, newest point marked |
-| **Mascot** | the same cat the console uses, wearing the health colour |
-| **Plain** | a quiet glyph, for when the tray should be present but not loud |
-| **Bars + text** | the bar chart dimmed as a background, with a figure over it |
-| **Text only** | the figure alone, at the largest size the icon allows |
-| **Mascot + text** | the cat on the left, the figure on the right |
+| **Number** | the reading itself, as a figure |
+| **Cat** | the product's own mascot, wearing the health colour |
+| **Shield / Prompt / Waves / Nodes / Ring** | the five marks the application icon can also carry, so the tray and the file can wear the same shape |
 
-A shape and a number are different things: a curve shows a trend but cannot state
-a value, and there are readings — credits left, accounts serving — where the value
-is the point. Those three styles draw the figure into the icon with a 3×5 dot
-matrix face, which at sixteen pixels is about as small as a digit can be drawn and
-still read. A figure too long for the space is **shortened rather than
-truncated** — `48250` becomes `48k`, `1602000` becomes `1.6M` — so what is left on
-screen is still the right number. They also drop the status pip and colour the
-figure by health instead, because four characters fill the icon and a pip would
-land on top of them.
+### The palettes
 
-Two palettes. **System**, the default, draws the mark in the accent Windows is
-using, which it reads from the system rather than choosing for itself: an icon
-sitting on the taskbar beside the system's own should be the same colour as the
-system's highlights, because two different blues on one taskbar read as one of
-them being wrong. **Monochrome** drops the hue entirely and keeps colour only for
-the two states that need to be noticed, for when the accent clashes with them.
+Four, each a neutral ramp in a light and a dark tone. Colour in this design is reserved
+for the states that have to be noticed; everything else is ink.
 
-Both can be pinned or left to follow the Windows light/dark mode, which turns the
-mark inside out — dark ink on a light halo — for a light taskbar.
+![The four palettes](design/themes.png)
 
-The metric behind the shape is one of accounts ready, credits left, requests,
-tokens, average latency, tokens per second, or requests in flight, and the
-numbers come from the gateway's own API rather than from a second implementation
-of the same accounting.
+| Palette | The neutral |
+|---|---|
+| **Neutral** | the one the design was drawn from: a plain warm-neutral grey |
+| **Cool** | a blue-leaning grey — the blacks read as slate rather than as charcoal |
+| **Warm** | a brown-leaning grey, which reads as sepia |
+| **Contrast** | the surfaces pulled apart: a darker background and a lighter card |
 
-## What the menu offers
+The accent is the ink rather than a colour of its own, and that is deliberate. An
+earlier version wore the Windows accent, which sounds like the right idea — an icon
+that matches the system's own — and is not, because an accent is chosen to be a
+highlight rather than to be a status mark. A dark olive accent read at 1.5:1 against a
+dark taskbar, so every mark in the tray was a muddy olive or, after the contrast
+correction added to rescue it, a washed-out tan. Colour here is for problems.
 
-Right-clicking the icon opens the shell's own menu, rebuilt from live state every
-time, so what it says is what is true at that moment.
+The tests check the claim each palette makes: every ink legible against every surface
+it is drawn on, by margins of 4.6:1 to 17.5:1.
 
-![The menu](design/menu-en.png)
+### The application icon
 
-Eight rows at the top level, each label two characters:
+The executable carries its own mark — an identity rather than a reading, because the
+icon in Explorer is drawn once at build time and a reading baked into it is a lie by
+the next day.
+
+![The seven marks](design/appmarks.png)
+
+Seven to choose from, at 16, 32 and 256 pixels on a light and a dark desktop. The cat
+is the default, because it is the product's own character and the only one of the seven
+that is recognisable among twenty other icons in a folder. Build with another:
+
+```bash
+go run ./cmd/iconbuild -variant shield   # cat, gauge, shield, prompt, waves, nodes, ring
+```
+
+At sixteen pixels the cat is drawn **without its face**. Below about forty pixels of
+head an eye is two pixels across, and two specks plus a nose is not a face but noise;
+the ears carry the silhouette, which is what makes the shape read as a cat at any size.
+
+## What the tray opens
+
+Right-clicking the icon opens a panel of wbtray's own rather than the shell's menu,
+rebuilt from live state every time, so what it says is what is true at that moment.
+
+![The tray panel](design/panel-en.png)
+
+The reason is the switches. A native menu can list verbs; it cannot draw a switch, a
+sparkline or a row of coloured figures, and those are what let a panel answer a
+question instead of offering a command. A state shown as a position is read without
+being read, where "Pause" and "Resume" are one row with two words that have to be told
+apart.
 
 | Row | What it does |
 |---|---|
-| **healthy** | the state, with the gateway address beside it |
-| **Accounts** | ready over total, and the credits behind them |
-| **Panel** | opens the console, with the API key already filled in |
-| **Gateway ▸** | the pid, start / stop / restart, the console window, the address and key to copy, autostart, and the folder and file it lives in |
-| **Tray ▸** | style, metric, palette, language, and the config file, folder and reload rows |
-| **Other ▸** | the live figures, the version block, the seven maintenance actions, refresh and pause |
-| **Autostart** | whether the tray starts with Windows |
+| **the hero** | the state as a colour, the account being served with, and the credits behind it |
+| **the trend** | the last twelve buckets of requests, as a shape rather than an axis |
+| **the figures** | requests, latency and throughput, each in its own colour |
+| **Pause refreshing** | a switch, not a command |
+| **Start with Windows** | a switch, for the tray's own autostart entry |
+| **Open console** | the window, on the page the row names |
+| **Gateway / Accounts / Models and logs** | the console, opened on that page |
 | **Exit** | quits the tray; the gateway keeps running |
 
-The rows that carry a colour are the two status rows, and they are drawn by
-wbtray rather than by the shell. That is not a preference: a menu row the shell
-draws is dimmed when it cannot be clicked, and its icon is dimmed with it, so a
-health colour in a plain row comes out grey exactly where it carries the most
-information.
+Nothing in the panel is a submenu. A row that would need one opens the console on the
+page that has it, because a menu nested inside a panel is still a menu, and not being
+one is the point. The shell's own menu is kept as a fallback for a machine where the
+panel cannot be created: a tray with no way to reach anything would be worse than a
+tray with the wrong-looking menu.
+
+## The console
+
+A left click opens the window. It is the gateway's console: everything the browser
+panel offers, in six pages behind a navigation rail.
+
+![The console](design/console-en.png)
+
+| Page | What it shows |
+|---|---|
+| **Overview** | the pool's figures, the trend, the pool as a row of state pips, and the seven pool-wide maintenance actions |
+| **Accounts** | one row per account, with check-in, balance and revive against each one |
+| **Models** | the catalogue: what each costs, how much context it takes, which reasoning efforts it accepts, and what it can do |
+| **Logs** | the gateway's own log ring, newest first, coloured by channel |
+| **Schedule** | which of the gateway's five scheduled tasks are switched on, and when they run |
+| **Config** | the gateway's settings, read only |
+
+The schedule and the config pages are read only, and they say so on the page. Both live
+in the gateway's own `config.json`, which the browser console writes; a second writer
+would silently overwrite the first, and the one that lost the race would be the
+operator's change.
+
 
 ## What the copy rows offer
 

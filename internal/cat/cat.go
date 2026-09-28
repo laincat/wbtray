@@ -19,35 +19,52 @@ const Master = 1024.0
 // Box is the cat's extent inside the master space. The outline does not use the
 // whole canvas, and fitting this box rather than the canvas is what keeps the
 // proportions right at every size.
-var Box = struct{ MinX, MinY, MaxX, MaxY float64 }{204, 150, 820, 830}
+var Box = struct{ MinX, MinY, MaxX, MaxY float64 }{192, 108, 832, 842}
 
 type vertex struct{ x, y, r float64 }
 
 // outline is the silhouette: two ear tips, the notch between them, and a broad
 // rounded body.
+//
+// The ears are a quarter of the height and the notch between them is deep, which is
+// what makes the shape read as a cat rather than as a rounded head with bumps. An
+// earlier version had them a seventh of the height with a shallow notch, and at two
+// hundred pixels it read as an egg: the ear is the whole identity of the silhouette
+// and everything else is a blob that could be any animal.
+//
+// The tips are sharp rather than rounded — a radius of twenty-six against a corner
+// span of two hundred and thirty — because a rounded tip is a bump and a sharp one is
+// an ear. The cheeks and the chin stay generous, which is what keeps it friendly.
 var outline = []vertex{
-	{318, 150, 34},  // left ear tip
-	{448, 245, 46},  // notch, left side
-	{576, 245, 46},  // notch, right side
-	{706, 150, 34},  // right ear tip
-	{820, 734, 104}, // right cheek
-	{696, 830, 116}, // bottom right
-	{328, 830, 116}, // bottom left
-	{204, 650, 104}, // left cheek
+	{300, 108, 26},  // left ear tip
+	{432, 300, 58},  // notch, left side
+	{592, 300, 58},  // notch, right side
+	{724, 108, 26},  // right ear tip
+	{832, 716, 100}, // right cheek
+	{700, 842, 118}, // bottom right
+	{324, 842, 118}, // bottom left
+	{192, 716, 100}, // left cheek
 }
 
 // Face features in master units.
+//
+// They are small and set low, which is the other half of reading as a cat: the ears
+// carry the top of the head, so the face belongs in the lower half. Eyes the size of
+// the ones an earlier version had filled the head and made it a face with a hat
+// rather than an animal.
 const (
-	eyeDX   = 101.0
-	eyeY    = 446.0
-	eyeR    = 49.0
-	cheekDX = 216.0
-	cheekY  = 588.0
-	cheekRX = 60.0
-	cheekRY = 23.0
-	mouthY  = 540.0
-	mouthR  = 52.0
-	mouthWd = 34.0
+	eyeDX   = 110.0
+	eyeY    = 486.0
+	eyeR    = 40.0
+	noseY   = 552.0
+	noseR   = 15.0
+	cheekDX = 206.0
+	cheekY  = 660.0
+	cheekRX = 42.0
+	cheekRY = 15.0
+	mouthY  = 606.0
+	mouthR  = 40.0
+	mouthWd = 24.0
 )
 
 // Palette is the colours one drawing uses. Inner is the colour drawn through the
@@ -97,41 +114,95 @@ func Draw(c *raster.Canvas, x, y, w, h float64, p Palette) {
 	}
 	c.Poly(pts, p.Fur)
 
-	// The knockout: eyes, mouth, then the blush over the coat.
-	cx := Master / 2
-	for _, sx := range []float64{-1, 1} {
-		e := toCanvas(cx+sx*eyeDX, eyeY)
-		c.Circle(e.X, e.Y, eyeR*scale, p.Inner)
-	}
-	drawMouth(c, toCanvas, scale, p.Inner)
-	if p.CheeksOn {
+	// The face, if the cat is big enough to have one.
+	//
+	// The threshold is the point at which an eye is three pixels across. Below that
+	// the features stop being a face and become noise: the eyes are two specks, the
+	// nose a third, and the nose-and-mouth is a smudge in the middle of the head. A
+	// cat silhouette without a face is still unmistakably a cat — the ears carry it —
+	// which is why the small sizes drop the features rather than shrinking them.
+	if faceVisible(scale) {
+		cx := Master / 2
 		for _, sx := range []float64{-1, 1} {
-			b := toCanvas(cx+sx*cheekDX, cheekY)
-			// A circle is not an ellipse, and the cheeks are wider than they are
-			// tall: drawing three overlapping circles along the x axis gives the
-			// right proportions without an ellipse rasteriser.
-			for _, dx := range []float64{-cheekRX * 0.5, 0, cheekRX * 0.5} {
-				c.Circle(b.X+dx*scale, b.Y, cheekRY*scale, p.Blush)
+			e := toCanvas(cx+sx*eyeDX, eyeY)
+			c.Circle(e.X, e.Y, eyeR*scale, p.Inner)
+		}
+		drawNose(c, toCanvas, scale, p.Inner)
+		drawMouth(c, toCanvas, scale, p.Inner)
+		if p.CheeksOn {
+			for _, sx := range []float64{-1, 1} {
+				b := toCanvas(cx+sx*cheekDX, cheekY)
+				// A circle is not an ellipse, and the cheeks are wider than they are
+				// tall: drawing three overlapping circles along the x axis gives the
+				// right proportions without an ellipse rasteriser.
+				for _, dx := range []float64{-cheekRX * 0.5, 0, cheekRX * 0.5} {
+					c.Circle(b.X+dx*scale, b.Y, cheekRY*scale, p.Blush)
+				}
 			}
 		}
 	}
 }
 
-// drawMouth strokes the lower arc of the mouth, in master coordinates so it
-// scales with the face.
+// faceVisible reports whether the cat is big enough to carry a face.
+//
+// The test is on the head's own width rather than on a feature's radius, because the
+// caller's canvas may be supersampled and this package has no business knowing by how
+// much. A head narrower than a fifth of the master space is a head of about forty
+// output pixels at the sizes a tray uses, and at that size an eye is two pixels: the
+// features stop being a face and become noise, where the silhouette is still
+// unmistakably a cat because the ears carry it.
+func faceVisible(scale float64) bool {
+	head := (Box.MaxX - Box.MinX) * scale
+	return head >= 150
+}
+
+// drawNose is the small triangle between the eyes, which is what a cat's face has
+// where an animal with a muzzle has a snout.
+//
+// It is drawn as a triangle rather than a dot because a dot there is a second eye:
+// three round marks in a column read as a face turned the wrong way round.
+func drawNose(c *raster.Canvas, toCanvas func(float64, float64) raster.Pt, scale float64, colour raster.RGBA) {
+	cx := Master / 2
+	r := noseR * scale
+	if r < 0.7 {
+		return
+	}
+	c.Poly([]raster.Pt{
+		toCanvas(cx-r, noseY-r*0.6),
+		toCanvas(cx+r, noseY-r*0.6),
+		toCanvas(cx, noseY+r),
+	}, colour)
+}
+
+// drawMouth strokes the two short arcs under the nose, in master coordinates so they
+// scale with the face.
+//
+// Two arcs rather than one, meeting at the nose: a single wide arc is a smile, and a
+// smile belongs to an emoji rather than to an animal. The pair reads as a muzzle
+// without needing the whole lower half of the face, which is what an earlier version
+// spent on it.
 func drawMouth(c *raster.Canvas, toCanvas func(float64, float64) raster.Pt, scale float64, colour raster.RGBA) {
-	const steps = 12
+	const steps = 10
 	cx := Master / 2
 	wd := mouthWd * scale
 	if wd < 0.6 {
 		wd = 0.6
 	}
-	pts := make([]raster.Pt, 0, steps+1)
-	for i := 0; i <= steps; i++ {
-		theta := math.Pi * float64(i) / steps
-		pts = append(pts, toCanvas(cx+mouthR*math.Cos(theta), mouthY+mouthR*math.Sin(theta)))
+	// Each side is a half circle hanging below the nose, from the nose outward. The
+	// sweep matters: an arc that goes outward first and down second bulges upward, and
+	// two of those are a frown. Each of these is centred half a radius to the side, so
+	// the pair meets exactly under the nose.
+	for _, sx := range []float64{-1, 1} {
+		pts := make([]raster.Pt, 0, steps+1)
+		for i := 0; i <= steps; i++ {
+			theta := math.Pi * float64(i) / float64(steps)
+			pts = append(pts, toCanvas(
+				cx+sx*mouthR*(1-math.Cos(theta)),
+				mouthY+mouthR*math.Sin(theta),
+			))
+		}
+		c.Line(pts, wd, colour)
 	}
-	c.Line(pts, wd, colour)
 }
 
 // flatten turns the rounded polygon into the point list the fill test uses: a

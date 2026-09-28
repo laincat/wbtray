@@ -174,6 +174,11 @@ const (
 	ActionOpenPanel      Action = "open_panel"
 	ActionOpenGatewayDir Action = "open_dir"
 	ActionTogglePause    Action = "pause"
+	// ActionCopyAddress and ActionCopyKey put the two values an operator would
+	// otherwise go and find on the clipboard. They live in the console rather than in
+	// the tray panel, because the panel is for a glance and these are for a task.
+	ActionCopyAddress Action = "copy_addr"
+	ActionCopyKey     Action = "copy_key"
 )
 
 // View is everything one frame needs.
@@ -997,6 +1002,8 @@ func schedulePage(l *Layout, v View) {
 func configPage(l *Layout, v View) {
 	p := v.Palette
 	headerLine(l, v, "配置", []button{
+		{Label: "复制密钥", Action: ActionCopyKey},
+		{Label: "复制地址", Action: ActionCopyAddress},
 		{Label: "打开网关目录", Action: ActionOpenGatewayDir},
 		{Label: "在控制台编辑", Action: ActionOpenPanel, Primary: true},
 	})
