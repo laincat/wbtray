@@ -75,13 +75,13 @@ func run(cfg config.Config, cfgPath string) error {
 				return nil
 			}
 			return iconstyle.Draw(iconstyle.View{
-				Size:   size,
-				Style:  config.Styles[index],
-				Metric: a.Config().Metric,
-				Lang:   a.Lang(),
-				Theme:  theme.ByName(a.Config().Theme, systemAccent()),
-				Snap:   a.Snapshot(),
-				Paused: a.Paused(),
+				Size:    size,
+				Style:   config.Styles[index],
+				Metric:  a.Config().Metric,
+				Lang:    a.Lang(),
+				Palette: a.Theme(),
+				Snap:    a.Snapshot(),
+				Paused:  a.Paused(),
 			})
 		},
 	})
@@ -126,13 +126,13 @@ func renderIcon(a *app.App) *raster.Canvas {
 func renderIconSized(a *app.App, size int) *raster.Canvas {
 	cfg := a.Config()
 	return iconstyle.Draw(iconstyle.View{
-		Size:   size,
-		Style:  a.Style(),
-		Metric: cfg.Metric,
-		Lang:   cfg.Lang,
-		Theme:  a.Theme(),
-		Snap:   a.Snapshot(),
-		Paused: a.Paused(),
+		Size:    size,
+		Style:   a.Style(),
+		Metric:  cfg.Metric,
+		Lang:    cfg.Lang,
+		Palette: a.Theme(),
+		Snap:    a.Snapshot(),
+		Paused:  a.Paused(),
 	})
 }
 

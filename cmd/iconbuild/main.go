@@ -22,6 +22,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"wbtray/internal/config"
 	"wbtray/internal/iconstyle"
 	"wbtray/internal/status"
 	"wbtray/internal/theme"
@@ -64,12 +65,12 @@ func run(arch string) error {
 	rendered := map[int]image.Image{}
 	for _, size := range sizes {
 		c := iconstyle.Draw(iconstyle.View{
-			Size:   size,
-			Style:  "mascot",
-			Metric: "accounts",
-			Lang:   "en",
-			Theme:  theme.System(theme.Accent{}),
-			Snap:   sampleState(),
+			Size:    size,
+			Style:   config.StyleCat,
+			Metric:  config.MetricAccounts,
+			Lang:    "en",
+			Palette: theme.System(theme.Accent{}),
+			Snap:    sampleState(),
 		})
 		rendered[size] = c.Image()
 	}

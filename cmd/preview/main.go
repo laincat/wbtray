@@ -1,5 +1,5 @@
-// Command preview renders the sheets used to choose a look: every style against
-// every theme, at the sizes the taskbar actually uses.
+// Command preview renders the sheet used to choose a look: every style against
+// every palette and tone, at the sizes the taskbar actually uses.
 //
 // It is a development tool rather than part of the program. The tray draws its
 // icons at run time, and this is a way to look at all of them at once instead of
@@ -7,12 +7,7 @@
 //
 // Usage:
 //
-//	go run ./cmd/preview [-out design-preview.png]
-
-// A second mode, -text, renders the text styles at every size the taskbar uses,
-// which is the only way to judge whether a figure is legible: the whole point of
-// those styles is the reading, and a reading that cannot be read is worse than
-// the shape it replaced.
+//	go run ./cmd/preview [-out design/styles.png] [-size 32] [-scale 5]
 package main
 
 import (
@@ -26,7 +21,6 @@ import (
 	"strings"
 
 	"wbtray/internal/config"
-	"wbtray/internal/i18n"
 	"wbtray/internal/iconstyle"
 	"wbtray/internal/raster"
 	"wbtray/internal/status"
@@ -46,93 +40,118 @@ func main() {
 	}
 }
 
+// variant is one row group of the sheet: a name, and the palette it draws with.
+//
+// The two travel together because a sheet whose labels say "System" twice is a
+// sheet nobody can read.
+type variant struct {
+	label   string
+	palette theme.Palette
+}
+
 func write(path string, size, scale int, accentHex string) error {
-	// The accent is a parameter rather than something read from the system, because this
-	// is a development tool and the point of it is to draw the icon for a chosen colour:
-	// what a palette looks like under an operator's own accent is exactly the thing worth
-	// seeing before choosing one.
+	// The accent is a parameter rather than something read from the system,
+	// because this is a development tool and the point of it is to draw the icon
+	// for a chosen colour: what a palette looks like under an operator's own
+	// accent is exactly the thing worth seeing before choosing one.
 	accent := theme.Accent{}
 	if accentHex != "" {
 		accent = theme.Accent{Known: true, Colour: raster.Hex(accentHex)}
 	}
 
-	// Both appearances of both palettes: the light rendering is a real mode an
-	// operator can be in, and a sheet that showed only the dark one would not
-	// show the thing most likely to be wrong.
-	var variants []variantTheme
-	for _, th := range theme.All(accent) {
+	// Both palettes in both tones. The light rendering is a real mode an operator
+	// can be in, and a sheet that showed only the dark one would not show the
+	// thing most likely to be wrong.
+	var variants []variant
+	for _, p := range theme.All(accent) {
 		variants = append(variants,
-			variantTheme{th.Label("en") + " / dark", th},
-			variantTheme{th.Label("en") + " / light", th.OnLight()})
+			variant{p.Label("en") + " / dark", p.On(false)},
+			variant{p.Label("en") + " / light", p.On(true)})
 	}
-	styles := config.Styles
 
 	// Three states, because an indicator that only looks right when everything
-	// works is not an indicator.
+	// works is not an indicator. Plus a paused tray, which is a fourth thing the
+	// icon has to say.
 	states := []struct {
-		name string
-		snap status.Snapshot
+		name   string
+		snap   status.Snapshot
+		paused bool
 	}{
-		{"ok", sampleSnapshot(3, 3, 48250, 91.5, 38.2, 1284, 12)},
-		{"busy", sampleSnapshot(1, 4, 21400, 940, 6.5, 12480, 51)},
-		{"down", status.Snapshot{Reachable: false}},
+		{"ok", sampleSnapshot(3, 3, 48250, 91.5, 38.2, 1284, 12), false},
+		{"busy", sampleSnapshot(1, 4, 21400, 940, 6.5, 12480, 51), false},
+		{"down", status.Snapshot{Reachable: false}, false},
+		{"paused", sampleSnapshot(3, 3, 48250, 91.5, 38.2, 1284, 12), true},
 	}
 
+	if err := sheet(path, variants, states, size, scale, false); err != nil {
+		return err
+	}
+	// A second sheet at the size the taskbar really uses, magnified, because an
+	// icon that reads well at 32 pixels can still be mud at 16. It lands beside
+	// the first one under a name derived from it, so the pair cannot drift apart
+	// through a mistyped path.
+	return sheet(replaceExt(path, "-16px.png"), variants, states, 16, 16, true)
+}
+
+// sheet writes one grid: a row per variant, a column per state, and the styles
+// laid out within each variant's block.
+func sheet(path string, variants []variant, states []struct {
+	name   string
+	snap   status.Snapshot
+	paused bool
+}, size, scale int, compact bool) error {
 	const (
-		cell = 12
-		gap  = 6
+		gap    = 6
+		cell   = 12
+		labelW = 132
 	)
+	styles := config.Styles
 	iconPx := size * scale
 	cellW := iconPx + gap*2
 	cellH := iconPx + gap*2
 
-	// Layout: a name column, then one column per state, with a block of rows per
-	// theme and a row per style the theme offers.
-	const labelW = 132
 	width := labelW + len(states)*cellW + cell
 	height := cell*gap*2 + len(variants)*(len(styles)*cellH+cell*gap)
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
 	// A mid grey background: the sheet has to be readable on a light and a dark
-	// surface at once, which is what the transparent themes need tested.
+	// surface at once, which is what a transparent icon needs tested.
 	draw.Draw(img, img.Bounds(), &image.Uniform{color.RGBA{0x80, 0x84, 0x8c, 0xff}},
 		image.Point{}, draw.Src)
+	ink := raster.RGBA{R: 0x14, G: 0x17, B: 0x1f, A: 0xff}
 
-	// The state headers, so the three columns are not a guessing game.
 	for i, st := range states {
 		head := raster.New(cellW, cell*gap)
-		head.Text(4, 8, 1.8, strings.ToUpper(st.name),
-			raster.RGBA{R: 0x14, G: 0x17, B: 0x1f, A: 0xff})
+		head.Text(4, 8, 1.8, strings.ToUpper(st.name), ink)
 		paste(img, head, labelW+i*cellW, 0)
 	}
 
 	y := cell*gap + cell
 	for _, v := range variants {
-		th := v.theme
 		blockTop := y
 		for _, style := range styles {
 			x := labelW
 			for _, st := range states {
 				icon := iconstyle.Draw(iconstyle.View{
-					Size:   size,
-					Style:  style,
-					Metric: config.MetricRequests,
-					Lang:   "en",
-					Theme:  th,
-					Snap:   st.snap,
+					Size:    size,
+					Style:   style,
+					Metric:  config.MetricRequests,
+					Lang:    "en",
+					Palette: v.palette,
+					Snap:    st.snap,
+					Paused:  st.paused,
 				})
-				big := icon.Scale(iconPx, iconPx)
-				paste(img, big, x+gap, y+gap)
+				paste(img, icon.Scale(iconPx, iconPx), x+gap, y+gap)
 				x += cellW
 			}
-			// The style name, once per row.
-			name := raster.New(labelW-cell, cellH)
-			name.Text(0, 10, 1.7, style, raster.RGBA{R: 0x14, G: 0x17, B: 0x1f, A: 0xff})
-			paste(img, name, cell, y)
+			if !compact {
+				name := raster.New(labelW-cell, cellH)
+				name.Text(0, 10, 1.7, style, ink)
+				paste(img, name, cell, y)
+			}
 			y += cellH
 		}
-		// The theme name, beside its own block of rows.
 		label := raster.New(labelW-cell, cell*gap)
-		label.Text(0, 8, 2.2, v.label, raster.RGBA{R: 0x0c, G: 0x0e, B: 0x14, A: 0xff})
+		label.Text(0, 8, 2.2, v.label, ink)
 		paste(img, label, cell, blockTop-cell)
 		y += cell * gap
 	}
@@ -145,80 +164,9 @@ func write(path string, size, scale int, accentHex string) error {
 	if err := png.Encode(f, img); err != nil {
 		return err
 	}
-	fmt.Printf("wrote %s (%dx%d): %d styles x %d palettes x %d states\n",
+	fmt.Printf("wrote %s (%dx%d): %d styles x %d variants x %d states\n",
 		path, width, height, len(styles), len(variants), len(states))
-
-	// A second sheet at the size the taskbar actually uses, magnified, because an
-	// icon that reads well at 32 pixels can still be mud at 16. It lands beside
-	// the first one under a name derived from it, so the pair cannot drift apart
-	// through a mistyped path.
-	writeSmall(replaceExt(path, "-16px.png"), variants, styles, states[0].snap)
 	return nil
-}
-
-// variantTheme is one entry of the sheet: a name for the row group and the
-// palette it draws with. The two travel together because a sheet whose labels
-// say "System" twice is a sheet nobody can read.
-type variantTheme struct {
-	label string
-	theme theme.Theme
-}
-
-// writeSmall writes the same gallery at 16 pixels, magnified sixteen times, so
-// the smallest rendering can be judged too.
-func writeSmall(path string, variants []variantTheme, styles []string, snap status.Snapshot) {
-	const (
-		size  = 16
-		scale = 16
-		gap   = 4
-		// Label bands. A sheet a person has to choose from has to say which row
-		// is which: the icons are the point, but a grid of fifteen of them with
-		// no names is a puzzle rather than a choice.
-		labelW = 150
-		labelH = 34
-	)
-	iconPx := size * scale
-	cellW, cellH := iconPx+gap*2, iconPx+gap*2
-	width := labelW + len(styles)*cellW
-	height := labelH + len(variants)*cellH
-	img := image.NewRGBA(image.Rect(0, 0, width, height))
-	draw.Draw(img, img.Bounds(), &image.Uniform{color.RGBA{0x7a, 0x7e, 0x86, 0xff}},
-		image.Point{}, draw.Src)
-
-	for r, v := range variants {
-		th := v.theme
-		label := raster.New(labelW-gap*2, labelH-8)
-		label.Text(0, 0, 2, v.label, raster.RGBA{R: 0x14, G: 0x17, B: 0x1f, A: 0xff})
-		paste(img, label, gap, labelH+r*cellH+8)
-
-		for c, style := range styles {
-			if r == 0 {
-				name := raster.New(cellW, labelH-8)
-				name.Text(4, 2, 1.6, style, raster.RGBA{R: 0x14, G: 0x17, B: 0x1f, A: 0xff})
-				paste(img, name, labelW+c*cellW, 4)
-			}
-			icon := iconstyle.Draw(iconstyle.View{
-				Size:   size,
-				Style:  style,
-				Metric: config.MetricRequests,
-				Lang:   "en",
-				Theme:  th,
-				Snap:   snap,
-			})
-			paste(img, icon.Scale(iconPx, iconPx),
-				labelW+c*cellW+gap, labelH+r*cellH+gap)
-		}
-	}
-	// The path is already the small sheet's own name; the caller derived it.
-	f, err := os.Create(path)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	if err := png.Encode(f, img); err != nil {
-		return
-	}
-	fmt.Printf("wrote %s (%dx%d)\n", path, width, height)
 }
 
 func paste(dst *image.RGBA, src *raster.Canvas, x, y int) {
@@ -234,13 +182,12 @@ func paste(dst *image.RGBA, src *raster.Canvas, x, y int) {
 			}
 			bg := dst.RGBAAt(dx, dy)
 			a := float64(p.A) / 255
-			blend := color.RGBA{
+			dst.SetRGBA(dx, dy, color.RGBA{
 				R: uint8(float64(p.R)*a + float64(bg.R)*(1-a)),
 				G: uint8(float64(p.G)*a + float64(bg.G)*(1-a)),
 				B: uint8(float64(p.B)*a + float64(bg.B)*(1-a)),
 				A: 0xff,
-			}
-			dst.SetRGBA(dx, dy, blend)
+			})
 		}
 	}
 }
@@ -288,7 +235,7 @@ func sampleSnapshot(ready, total int, credits int64, latency, tps float64, token
 		Reachable: true,
 		Healthy:   ready,
 		Total:     total,
-		Version:   "1.11.6-panel",
+		Version:   "1.11.9-panel",
 		Uptime:    7325,
 		Accounts:  accounts,
 		Usage: status.Usage{
@@ -308,7 +255,3 @@ func max(a, b int) int {
 	}
 	return b
 }
-
-// keep the i18n import honest: the sheet is rendered in English, and a key that
-// disappears would otherwise go unnoticed until the tray is run.
-var _ = i18n.T

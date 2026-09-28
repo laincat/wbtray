@@ -18,29 +18,32 @@ import (
 // Style names one of the tray looks. They are identified by name rather than by
 // index so a config file written by one build still means the same thing in the
 // next.
+//
+// There are five, and the short list is the point. An earlier version offered
+// eight, of which three were the same three shapes with a number scribbled over
+// them; at sixteen pixels that number was a grey smudge, so the "choice" was
+// between three legible marks and three illegible ones.
 const (
-	StyleRing   = "ring"
-	StyleBar    = "bar"
-	StyleSpark  = "spark"
-	StyleMascot = "mascot"
-	StylePlain  = "plain"
-	// The text styles: a figure drawn inside the icon, which is the one thing a
-	// shape cannot do. A curve shows a trend but not a number, and there are
-	// readings — credits left, accounts ready — where the number is the point.
-	StyleBarText    = "bartext"
-	StyleText       = "text"
-	StyleMascotText = "mascottext"
+	// StyleGauge is the donut: the reading as a filled arc.
+	StyleGauge = "gauge"
+	// StyleBars is the four-bar chart: the reading as a trend over the window.
+	StyleBars = "bars"
+	// StyleSpark is the trend line: the recent history as a curve.
+	StyleSpark = "spark"
+	// StyleNumber is the figure itself, which is the one thing a shape cannot do.
+	StyleNumber = "number"
+	// StyleCat is the mascot, wearing the palette and carrying the health in its
+	// coat.
+	StyleCat = "cat"
 )
 
 // Styles is the menu order, which is also the order of the preview sheet.
 //
-// The shape styles come first because a shape is what a sixteen-pixel icon is
-// best at, then the three that carry a figure. The order is also the gallery's,
-// so an operator meets the simplest reading before the densest one.
-var Styles = []string{
-	StyleRing, StyleBar, StyleSpark, StyleMascot, StylePlain,
-	StyleBarText, StyleText, StyleMascotText,
-}
+// The three shape styles come first, because a shape is what a sixteen-pixel icon
+// is best at. Then the figure, which says a number and nothing else. Then the
+// mascot, which is an identity rather than a reading and is the one to pick when
+// the tray should be recognisable rather than informative.
+var Styles = []string{StyleGauge, StyleBars, StyleSpark, StyleNumber, StyleCat}
 
 // Metric names what the tray icon draws, and what the menu's live entries show
 // as text.
@@ -103,7 +106,7 @@ func Default() Config {
 		DiscoveryEnabled: true,
 		IntervalSec:      3,
 		TimeoutSec:       5,
-		Style:            StyleRing,
+		Style:            StyleGauge,
 		Metric:           MetricAccounts,
 		Lang:             "zh",
 		Theme:            "system",
@@ -223,9 +226,10 @@ func normalize(cfg *Config) {
 	if cfg.TimeoutSec > 60 {
 		cfg.TimeoutSec = 60
 	}
-	if !validStyle(cfg.Style) {
-		cfg.Style = StyleRing
-	}
+	// A style name from an earlier build is mapped rather than rejected, so a
+	// configuration file written when there were eight styles still opens on the
+	// one that means the same thing.
+	cfg.Style = NormalizeStyle(cfg.Style)
 	if !validMetric(cfg.Metric) {
 		cfg.Metric = MetricAccounts
 	}
@@ -251,6 +255,35 @@ func validStyle(s string) bool {
 		}
 	}
 	return false
+}
+
+// NormalizeStyle maps a style name onto one the tray has.
+//
+// The renames are not cosmetic: the gauge used to be called "ring", the chart
+// "bar", and three styles that drew a figure over a shape are now the one figure
+// style. A configuration file written by an earlier build has to keep opening, and
+// a person reading it should find a name that matches what the menu calls the
+// style today.
+func NormalizeStyle(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "gauge", "ring", "plain":
+		// "plain" was a ring with a break cut out of it; it read as a letter Q at
+		// sixteen pixels, so it is the gauge now.
+		return StyleGauge
+	case "bars", "bar":
+		return StyleBars
+	case "spark":
+		return StyleSpark
+	case "number", "text", "bartext", "mascottext":
+		// The three figure styles collapsed into one: the shape behind a
+		// four-character figure at sixteen pixels was never visible, so the two
+		// that had one were drawing a smudge behind a smudge.
+		return StyleNumber
+	case "cat", "mascot":
+		return StyleCat
+	default:
+		return StyleGauge
+	}
 }
 
 func validMetric(m string) bool {

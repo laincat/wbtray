@@ -181,7 +181,14 @@ func (a *App) HealthLabel() string {
 	a.mu.Lock()
 	snap, paused, lang := a.snap, a.paused, a.cfg.Lang
 	a.mu.Unlock()
-	return healthLabel(lang, healthOf(snap, paused))
+	switch healthOf(snap, paused) {
+	case int(status.HealthOK):
+		return i18n.T(lang, "health.ok")
+	case int(status.HealthWarn):
+		return i18n.T(lang, "health.warn")
+	default:
+		return i18n.T(lang, "health.down")
+	}
 }
 
 // SetTrayAutoStart wires the tray's own autostart control, which lives in the
@@ -351,7 +358,7 @@ func (a *App) Accent() theme.Accent {
 
 // Theme resolves the palette to draw with right now, which is where "follow
 // Windows" turns into a concrete set of colours.
-func (a *App) Theme() theme.Theme {
+func (a *App) Theme() theme.Palette {
 	a.mu.Lock()
 	name, appearance := a.cfg.Theme, a.cfg.Appearance
 	darkFn, accentFn := a.opts.SystemDark, a.opts.Accent

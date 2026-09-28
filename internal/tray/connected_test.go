@@ -152,9 +152,9 @@ func TestIconAdaptsToHealth(t *testing.T) {
 	}
 }
 
-func iconCanvasFor(t *testing.T, snap status.Snapshot, th theme.Theme) *raster.Canvas {
+func iconCanvasFor(t *testing.T, snap status.Snapshot, pal theme.Palette) *raster.Canvas {
 	t.Helper()
-	return renderForTest(t, config.StyleRing, config.MetricAccounts, 32, th, snap)
+	return renderForTest(t, config.StyleGauge, config.MetricAccounts, 32, pal, snap)
 }
 
 // samePixels reports whether two icons are identical, which is how a test tells

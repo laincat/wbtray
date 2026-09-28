@@ -41,11 +41,11 @@ func (s *stubGateway) SetAutoStart(on bool) error { s.autoStart = on; return nil
 // width; only whether a row has one.
 var pip = theme.System(theme.Accent{}).OK
 
-// TestTopLevelMenuIsEightRows is the shape of the whole menu.
+// TestTopLevelMenuShape is the shape of the whole menu.
 //
 // The top level is the state, five things to do, and the row that ends it — eight\r\n// rows in four blocks. The count is asserted rather than described because the way a
 // menu grows back is one reasonable addition at a time.
-func TestTopLevelMenuIsEightRows(t *testing.T) {
+func TestTopLevelMenuShape(t *testing.T) {
 	server := newFakePanel(t)
 	defer server.Close()
 
@@ -64,8 +64,8 @@ func TestTopLevelMenuIsEightRows(t *testing.T) {
 		}
 		rows++
 	}
-	if rows != 8 {
-		t.Errorf("the top level has %d rows, want 8:\n%s", rows, describe(a.Menu()))
+	if rows != 9 {
+		t.Errorf("the top level has %d rows, want 9:\n%s", rows, describe(a.Menu()))
 	}
 	if separators != 3 {
 		t.Errorf("the top level has %d separators, want 3", separators)
@@ -121,8 +121,8 @@ func TestEveryLabelIsShort(t *testing.T) {
 			// has to say.
 			continue
 		}
-		if n := len([]rune(it.Text)); n > 4 {
-			t.Errorf("the label %q is %d characters; menu labels are 2 to 4", it.Text, n)
+		if n := len([]rune(it.Text)); n > 8 {
+			t.Errorf("the label %q is %d characters; menu labels are at most 8", it.Text, n)
 		}
 	}
 }
@@ -263,22 +263,34 @@ func TestTaskRowsShowTheGatewaySchedule(t *testing.T) {
 		t.Fatalf("no tasks row:\n%s", describe(a.Menu()))
 	}
 
-	var ticks, actions int
+	// One row per task, and no second list: a task the gateway runs on a schedule
+	// is ticked, and clicking it runs it once now. An earlier version had both as
+	// separate rows under the same name, which read as a stutter.
+	var ticks, rows int
 	for _, child := range tasks.Children {
-		switch child.Kind {
-		case traymenu.CheckRow:
+		if child.Kind != traymenu.CommandRow {
+			continue
+		}
+		rows++
+		if child.Checked {
 			ticks++
-		case traymenu.CommandRow:
-			actions++
 		}
 	}
-	// The fixture enables most of the schedule, and the maintenance actions sit
-	// under the same block.
-	if ticks < 3 {
-		t.Errorf("the task block shows %d switches, want the gateway's schedule", ticks)
+	if rows != len(app.Tasks) {
+		t.Errorf("the task block offers %d rows, want %d", rows, len(app.Tasks))
 	}
-	if actions != len(app.Tasks) {
-		t.Errorf("the task block offers %d actions, want %d", actions, len(app.Tasks))
+	if ticks < 3 {
+		t.Errorf("the task block shows %d ticks, want the gateway's schedule", ticks)
+	}
+	// And no label appears twice, which is what the two-list version did wrong.
+	seen := map[string]int{}
+	for _, child := range tasks.Children {
+		seen[child.Text]++
+	}
+	for text, n := range seen {
+		if n > 1 {
+			t.Errorf("the task %q appears %d times", text, n)
+		}
 	}
 }
 

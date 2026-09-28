@@ -91,6 +91,24 @@ func startFakePanel(t *testing.T) *fakeServer {
 		}})
 	}))
 
+	// The gateway's own configuration, which is where the tray learns which
+	// scheduled tasks are switched on. It is served through the panel API rather
+	// than read from disk so the answer is what the running gateway is using.
+	mux.HandleFunc("/panel/api/config", fs.auth(func(w http.ResponseWriter, r *http.Request) {
+		writeJSONTest(w, map[string]any{
+			"ok": true,
+			"config": map[string]any{
+				"schedule": map[string]any{
+					"checkin_enabled":         true,
+					"travel_enabled":          true,
+					"activity_enabled":        true,
+					"keepalive_enabled":       false,
+					"balance_refresh_enabled": true,
+				},
+			},
+		})
+	}))
+
 	fs.Server = httptest.NewServer(mux)
 	return fs
 }
@@ -125,15 +143,15 @@ func pad2(n int) string {
 }
 
 // renderForTest draws an icon through the same entry point the tray uses.
-func renderForTest(t *testing.T, style, metric string, size int, th theme.Theme, snap status.Snapshot) *raster.Canvas {
+func renderForTest(t *testing.T, style, metric string, size int, pal theme.Palette, snap status.Snapshot) *raster.Canvas {
 	t.Helper()
 	return iconstyle.Draw(iconstyle.View{
-		Size:   size,
-		Style:  style,
-		Metric: metric,
-		Lang:   "en",
-		Theme:  th,
-		Snap:   snap,
+		Size:    size,
+		Style:   style,
+		Metric:  metric,
+		Lang:    "en",
+		Palette: pal,
+		Snap:    snap,
 	})
 }
 
