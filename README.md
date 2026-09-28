@@ -250,6 +250,47 @@ go test ./...                                   # everything, including the layo
 go run ./cmd/preview -out design/styles-all.png # the sheets above, regenerated
 ```
 
+## The Windows 11 menu study
+
+The menu the tray opens is the shell's own. `cmd/uidemo` draws what it would look like
+rebuilt in the Windows 11 design language — rounded surface, hairline border, Fluent
+icons, the system's own font and accent — so that question can be answered by looking
+rather than by imagining. It is a development tool and not part of the program.
+
+```
+go run ./cmd/uidemo                         # both languages, dark
+go run ./cmd/uidemo -scene submenu          # a cascade over its parent
+go run ./cmd/uidemo -scene states           # every row state on one plate
+go run ./cmd/uidemo -dark=false             # the light appearance
+go run ./cmd/uidemo -accent '#c30052'       # under a chosen accent
+```
+
+It reads the accent Windows is using and the system's own UI font, so the picture is of
+this machine rather than of a mock-up. Every scene is drawn once per language, because
+the two have different lengths for nearly every row and a layout proven in one is not
+proven at all.
+
+What that study established, and what it costs:
+
+- **The surface is cheap.** Rounded corners and a hairline come from the icon renderer
+  the tray already has, drawn supersampled and averaged down. A drawn menu adds about
+  nothing to the binary — the last one that existed made it 0.04 MB *smaller* than the
+  system menu it replaced, because the renderer was there either way.
+- **The text is not.** Chinese and the icon glyphs need a rasteriser, and the tray no
+  longer has one: the window that needed it was removed with the chart. `cmd/uidemo`
+  carries a minimal replacement, and its size is the honest estimate of that part.
+- **Mica is not available with drawn content.** A translucent material is a compositor
+  effect behind the window, so a window that paints its own background covers it. This
+  was measured rather than assumed: every combination of the backdrop attributes is
+  accepted and none of them shows through. Rounded corners and the border are what a
+  drawn menu can have.
+
+![The Windows 11 menu, dark](design/uidemo/menu-zh.png)
+
+![A submenu over its parent](design/uidemo/submenu-zh.png)
+
+![Every row state](design/uidemo/states-zh.png)
+
 The executable's own icon, the one Explorer shows, is a PE resource, and Go can
 only attach one through a `.syso` beside the package's sources. That file is
 generated from the same renderer the tray uses and is committed, because a release
