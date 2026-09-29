@@ -507,6 +507,21 @@ func (w *Window) SetExtra(models []panel.Model, logs []panel.LogEntry, schedule 
 	w.Invalidate()
 }
 
+// SetModels installs just the model catalogue, leaving the other pages' data alone.
+//
+// It is separate from SetExtra because the catalogue is the one call that has to go
+// upstream and can take a minute, so it arrives on its own, after everything else is
+// already on screen. A caller that used SetExtra for it had to invent values for the
+// three arguments it was not setting, and the invented value for the log ring was
+// nil — which wiped the lines the overview had just drawn and left the card saying
+// "no logs yet" under a rail badge counting ten of them.
+func (w *Window) SetModels(models []panel.Model) {
+	w.mu.Lock()
+	w.models = models
+	w.mu.Unlock()
+	w.Invalidate()
+}
+
 // Tab reports the page showing, so the front end can fetch what it needs.
 func (w *Window) Tab() ui.Tab {
 	w.mu.Lock()

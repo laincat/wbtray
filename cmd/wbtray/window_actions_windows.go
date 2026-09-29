@@ -179,7 +179,11 @@ func loadWindowData(ctx context.Context, a *app.App, win *tray.Window) {
 		if err != nil {
 			return
 		}
-		win.SetExtra(models, nil, panel.Schedule{}, "")
+		// Only the catalogue is installed. Passing empty values for the other three
+		// arguments cleared the log ring and the schedule that were already on
+		// screen, which is what made the overview's activity card say "no logs"
+		// while the rail beside it counted ten of them.
+		win.SetModels(models)
 	}()
 }
 

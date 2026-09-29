@@ -610,9 +610,17 @@ func chartCard(l *Layout, v View, x, y, w, h float64) {
 			peak = s
 		}
 	}
-	// The area, as a column per pixel, each column's height interpolated between
-	// the samples: that is what makes a dozen points fill a thousand-pixel panel
-	// without either stepping or a scanline filler.
+	// The line joins the samples as they are, with no smoothing, and that is a decision
+	// rather than an omission. Averaging each point against its neighbours was tried and
+	// removed: with a dozen samples it flattens the peaks out of existence — a spike of
+	// four hundred requests became a gentle rise — and a curve that hides the one event
+	// worth looking at is worse than a jagged one. What the shape is for is comparing
+	// this hour with the last few, and that comparison needs the values, not a trend line
+	// drawn through them.
+	//
+	// The area, as a column per pixel, each column's height interpolated between the
+	// samples: that is what makes a dozen points fill a thousand-pixel panel without
+	// either stepping or a scanline filler.
 	at := func(t float64) float64 {
 		pos := t * float64(len(series)-1)
 		i := int(pos)
