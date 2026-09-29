@@ -56,6 +56,11 @@ const (
 )
 
 // Panel is the tray's own panel: a drawn card rather than the shell's menu.
+// panelCorner is the radius the window is clipped to. It matches the corner the
+// layout draws the card with, because a region that disagreed with the drawing would
+// either shave the card's edge or leave a sliver of the notch behind.
+const panelCorner = 12
+
 type Panel struct {
 	mu sync.Mutex
 
@@ -76,6 +81,9 @@ type Panel struct {
 	palette  func() theme.Palette
 	state    func() (paused, auto, installed bool)
 	act      func(ui.TrayAction, string)
+	// lang is where the panel's language comes from, so switching it in the panel
+	// itself takes effect on the next open rather than on the next launch.
+	lang func() string
 
 	wndProcRef uintptr
 }
@@ -145,6 +153,14 @@ func (p *Panel) SetActions(fn func(ui.TrayAction, string)) {
 	p.mu.Unlock()
 }
 
+// SetLang installs where the panel's language comes from. As with the window, the
+// default is English so a panel without one still lays out.
+func (p *Panel) SetLang(fn func() string) {
+	p.mu.Lock()
+	p.lang = fn
+	p.mu.Unlock()
+}
+
 // Anchor installs the function that says where the tray icon is, so the panel can be
 // placed against it. It reports screen coordinates and whether the icon is ours to
 // position against; the shell's own notification-area rectangle is not readable, so
@@ -167,13 +183,13 @@ func (p *Panel) wndProc(hwnd uintptr, msg uint32, wparam uintptr, lparam unsafe.
 	case wmEraseBkgnd:
 		return 1
 	case wmLButtonDown:
-		x := float64(int32(winapi.LowWord(wparam)))
-		y := float64(int32(winapi.HighWord(wparam)))
+		mx, my := winapi.MousePos(uintptr(lparam))
+		x, y := float64(mx), float64(my)
 		self.click(x, y)
 		return 0
 	case wmMouseMove:
-		x := float64(int32(winapi.LowWord(wparam)))
-		y := float64(int32(winapi.HighWord(wparam)))
+		mx, my := winapi.MousePos(uintptr(lparam))
+		x, y := float64(mx), float64(my)
 		self.move(x, y)
 		return 0
 	case wmSetCursor:
@@ -202,6 +218,7 @@ func (p *Panel) wndProc(hwnd uintptr, msg uint32, wparam uintptr, lparam unsafe.
 func (p *Panel) paint() {
 	p.mu.Lock()
 	hwnd, snap, pal, state, act := p.hwnd, p.snapshot, p.palette, p.state, p.act
+	lang := p.lang
 	p.mu.Unlock()
 
 	var ps winapi.PaintStruct
@@ -218,9 +235,14 @@ func (p *Panel) paint() {
 	if state != nil {
 		paused, auto, installed = state()
 	}
+	language := "en"
+	if lang != nil {
+		language = lang()
+	}
 	layout := ui.BuildTray(ui.TrayView{
 		Snap:      snap(),
 		Palette:   pal(),
+		Lang:      language,
 		Paused:    paused,
 		Auto:      auto,
 		Installed: installed,
@@ -269,8 +291,12 @@ func (p *Panel) paint() {
 		tr.Draw(c, items, winapi.DPIScaleFor(hwnd))
 	}
 
-	// The panel is drawn with a one-pixel margin of its own surface so the rounded
-	// corners are not clipped by the window's own edge.
+	// The window is clipped to the card's own outline before it is painted, which is
+	// what keeps the four notches outside a rounded card from arriving as black: the
+	// pixels there are unpainted, and BitBlt below carries no alpha, so black is what
+	// they would be. Clipping the window is what puts them outside it instead.
+	winapi.RoundWindow(hwnd, layout.W, layout.H, panelCorner)
+
 	scr, _, _ := winapi.ProcCreateCompatibleDC.Call(hdc)
 	bitmap, bits := winapi.NewDIBSection(layout.W, layout.H)
 	if bitmap == 0 {

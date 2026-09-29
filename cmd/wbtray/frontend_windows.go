@@ -47,6 +47,7 @@ func run(cfg config.Config, cfgPath string) error {
 	}
 	if win != nil {
 		win.SetSources(a.Snapshot, a.Theme)
+		win.SetLang(a.Lang)
 		defer win.Close()
 	}
 	// The renamed build an earlier self-update left behind is removed here, which
@@ -57,11 +58,15 @@ func run(cfg config.Config, cfgPath string) error {
 	// they are independent: the panel is what a right click opens and the window is
 	// what a left click does, and a machine where one failed should still have the
 	// other.
-	if panel, err := tray.NewTrayPanel(renderIcon(a)); err != nil {
+	// Declared outside the if so the settings callback below can ask it to repaint.
+	var panel *tray.Panel
+	if p, err := tray.NewTrayPanel(renderIcon(a)); err != nil {
 		log.Printf("panel: %v", err)
 	} else {
+		panel = p
 		defer panel.Close()
 		panel.SetSources(a.Snapshot, a.Theme, panelState(a, lc))
+		panel.SetLang(a.Lang)
 		panel.SetActions(panelActions(a, lc, win, panel))
 	}
 	if win != nil {
@@ -97,6 +102,17 @@ func run(cfg config.Config, cfgPath string) error {
 		OpenURL:     openURL,
 		OpenPath:    openPath,
 		RefreshIcon: func() { icon.SetIcon(renderIcon(a)) },
+		SettingsChanged: func() {
+			// The icon is redrawn by RefreshIcon; these two draw the palette and the
+			// language, so a choice made in the menu shows up while the window is
+			// open rather than on the next launch.
+			if win != nil {
+				win.Invalidate()
+			}
+			if panel != nil {
+				panel.Invalidate()
+			}
+		},
 		RecordGatewayVersion: func(v string) {
 			_ = lc.layout.RecordGatewayVersion(v)
 		},

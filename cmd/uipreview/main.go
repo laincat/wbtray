@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"wbtray/internal/i18n"
 	"wbtray/internal/panel"
 	"wbtray/internal/raster"
 	"wbtray/internal/status"
@@ -41,6 +42,7 @@ func main() {
 	palette := flag.String("palette", theme.DefaultName,
 		"which palette: "+strings.Join(theme.Names, ", "))
 	dpi := flag.Float64("dpi", 1, "scale factor to render at")
+	lang := flag.String("lang", "zh", "which language: zh or en")
 	flag.Parse()
 
 	w, h, err := parseSize(*size)
@@ -52,13 +54,13 @@ func main() {
 
 	if *tab != "all" {
 		if *tab == "tray" {
-			if err := writeTray(*out, pal, *dpi); err != nil {
+			if err := writeTray(*out, pal, *dpi, *lang); err != nil {
 				fmt.Fprintf(os.Stderr, "uipreview: %v\n", err)
 				os.Exit(1)
 			}
 			return
 		}
-		if err := writePage(*out, ui.Tab(*tab), w, h, pal, *dpi); err != nil {
+		if err := writePage(*out, ui.Tab(*tab), w, h, pal, *dpi, *lang); err != nil {
 			fmt.Fprintf(os.Stderr, "uipreview: %v\n", err)
 			os.Exit(1)
 		}
@@ -75,7 +77,7 @@ func main() {
 	img := image.NewRGBA(image.Rect(0, 0, sw*cols+gap*(cols+1), sh*rows+gap*(rows+1)))
 	draw.Draw(img, img.Bounds(), &image.Uniform{rasterToColor(pal.BG)}, image.Point{}, draw.Src)
 	for i, t := range ui.Tabs {
-		page := render(t, w, h, pal, *dpi)
+		page := render(t, w, h, pal, *dpi, *lang)
 		small := page.Scale(sw, sh)
 		x := gap + (i%cols)*(sw+gap)
 		y := gap + (i/cols)*(sh+gap)
@@ -90,8 +92,8 @@ func main() {
 
 const gap = 10
 
-func writePage(path string, tab ui.Tab, w, h int, pal theme.Palette, dpi float64) error {
-	c := render(tab, w, h, pal, dpi)
+func writePage(path string, tab ui.Tab, w, h int, pal theme.Palette, dpi float64, lang string) error {
+	c := render(tab, w, h, pal, dpi, lang)
 	if err := save(path, c.Image()); err != nil {
 		return err
 	}
@@ -101,19 +103,22 @@ func writePage(path string, tab ui.Tab, w, h int, pal theme.Palette, dpi float64
 
 // render lays out one page and draws its text through GDI, which is the path the
 // window itself takes.
-func render(tab ui.Tab, w, h int, pal theme.Palette, dpi float64) *raster.Canvas {
+func render(tab ui.Tab, w, h int, pal theme.Palette, dpi float64, lang string) *raster.Canvas {
 	layout := ui.Build(ui.View{
 		W: w, H: h,
 		Tab:        tab,
 		Palette:    pal,
-		Lang:       "zh",
+		Lang:       lang,
 		Snap:       sampleSnapshot(),
 		Models:     sampleModels(),
 		Logs:       sampleLogs(),
 		Schedule:   sampleSchedule(),
 		Config:     sampleConfig(),
 		ConfigPath: "config.json",
-		Action:     "全部签到：完成 3 个，失败 0 个",
+		// A footer message, in the language the sheet is drawn in: a preview that
+		// showed Chinese in the English sheet would be showing a bug that is not
+		// there, or hiding one that is.
+		Action: sampleAction(lang),
 	})
 	c := &layout.Ink
 	items := make([]winapi.TextItem, 0, len(layout.Texts))
@@ -285,17 +290,25 @@ func sampleSchedule() panel.Schedule {
 	}
 }
 
+// sampleAction is the footer's line: what the last action did. It is built from
+// the same table the window uses rather than written out, so the sheet cannot show
+// a sentence the program is unable to produce.
+func sampleAction(lang string) string {
+	return i18n.T(lang, "btn.checkin_all") + ": " +
+		i18n.T(lang, "sample.checkin_result", 3, 0)
+}
+
 func sampleConfig() string {
 	return `{"listen":":7863","api_key":"sk-probe","auth_dir":"./auths","state_file":"./data/state.json","global":{"enabled":true},"pool":{"max_in_flight":3,"max_in_flight_global":2,"breaker_threshold":3,"breaker_cooldown":"30m","expiring_soon":"168h"},"session_sticky":{"enabled":true,"ttl":"30m"},"upstream":{"timeout_seconds":120,"header_timeout_seconds":120}}`
 }
 
 // writeTray renders the tray panel, which is the one page whose size is its own
 // rather than the window's.
-func writeTray(path string, pal theme.Palette, dpi float64) error {
+func writeTray(path string, pal theme.Palette, dpi float64, lang string) error {
 	layout := ui.BuildTray(ui.TrayView{
 		Snap:      sampleSnapshot(),
 		Palette:   pal,
-		Lang:      "zh",
+		Lang:      lang,
 		Paused:    false,
 		Auto:      true,
 		Installed: true,

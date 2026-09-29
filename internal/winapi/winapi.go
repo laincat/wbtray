@@ -102,9 +102,10 @@ var (
 	ProcCreateSolidBrush    = gdi32.NewProc("CreateSolidBrush")
 	ProcGetDeviceCaps       = gdi32.NewProc("GetDeviceCaps")
 
-	// The tray deliberately renders its own glyphs, but GDI still draws the
-	// flyout's text: DirectWrite through COM would be a large amount of code for
-	// one label per row, and the bitmap font is only legible at icon sizes.
+	// The tray deliberately renders its own glyphs, but GDI draws the text of the
+	// window and the panel: DirectWrite through COM would be a large amount of code
+	// for the labels these surfaces hold, and the bitmap font the icons use is only
+	// legible at icon sizes.
 	ProcTextOutW  = gdi32.NewProc("TextOutW")
 	ProcBitBlt    = gdi32.NewProc("BitBlt")
 	ProcGetDC     = user32.NewProc("GetDC")
@@ -138,8 +139,8 @@ var (
 	procGetClipboardData           = user32.NewProc("GetClipboardData")
 )
 
-// DwmAPI is loaded lazily like the rest: it is only for the flyout window's
-// rounded corners, and a system without it simply gets square ones.
+// DwmAPI is loaded lazily like the rest: it is only for the system's own rounded
+// corners on a window frame, and a system without it simply gets square ones.
 var (
 	DwmAPI                    = syscall.NewLazyDLL("DwmAPI.dll")
 	ProcDwmSetWindowAttribute = DwmAPI.NewProc("DwmSetWindowAttribute")
@@ -297,6 +298,27 @@ func WindowSizeForClient(cw, ch int, style uint32) (int, int) {
 // size message carries the height and a selection message carries the flags.
 func HighWord(v uintptr) uint32 { return uint32((v >> 16) & 0xffff) }
 
+// ClientSize reads the width and height out of a WM_SIZE message's lParam.
+//
+// WM_SIZE packs cx in the low word and cy in the high word of lParam. Reading
+// wParam instead — which the first version of this did — yields zero for every
+// resize, so the window lays out at no size at all and blits an empty canvas.
+// The result is a window that never shows anything, on every machine, while the
+// layout it would have drawn is perfectly correct.
+func ClientSize(lparam uintptr) (int, int) {
+	return int(lparam & 0xffff), int((lparam >> 16) & 0xffff)
+}
+
+// MousePos reads the client coordinates out of a mouse message's lParam.
+//
+// Every mouse message carries the position in lParam, in the same two signed
+// words. They are signed because a drag that leaves the window reports negative
+// coordinates, and reading them unsigned turns a position just above the client
+// area into one near 65535.
+func MousePos(lparam uintptr) (int, int) {
+	return int(int16(lparam & 0xffff)), int(int16((lparam >> 16) & 0xffff))
+}
+
 // The DrawTextW flags this program uses, named where the binding is.
 const (
 	// DtLeft aligns text to the left edge of the rectangle.
@@ -410,6 +432,36 @@ func NewDIBSection(w, h int) (uintptr, unsafe.Pointer) {
 		return 0, nil
 	}
 	return hbm, bits
+}
+
+// RoundWindow clips a window to a rounded rectangle.
+//
+// A window is a rectangle and the card drawn inside it has rounded corners, so the
+// pixels in the four notches between them belong to no shape at all and nothing
+// paints them. A 32-bit surface leaves them at zero — which is transparent, but also
+// black, and every blit this program has copies colour and ignores the alpha byte, so
+// black is what reaches the screen. Four black corners on a rounded card.
+//
+// Shrinking the window itself to the same rounded rectangle is what removes them: the
+// shell then composites nothing where the card has no pixels, which is the only way to
+// get a soft edge on a window whose content is drawn rather than laid out. The region
+// belongs to the system once it has been set, so it is not deleted here.
+//
+// It is stated in window pixels, so a caller that scales its layout by the window's
+// DPI has to scale the radius too.
+func RoundWindow(hwnd uintptr, w, h, radius int) {
+	if hwnd == 0 || w <= 0 || h <= 0 || radius <= 0 {
+		return
+	}
+	// The rectangle is one pixel wider and taller than the window, because
+	// SetWindowRgn measures the region in window coordinates and a region that ends
+	// exactly at the far edge leaves the last row and column unclipped.
+	rgn, _, _ := ProcCreateRoundRectRgn.Call(0, 0,
+		uintptr(w+1), uintptr(h+1), uintptr(2*radius), uintptr(2*radius))
+	if rgn == 0 {
+		return
+	}
+	ProcSetWindowRgn.Call(hwnd, rgn, 1)
 }
 
 // ScreenPoint packs a screen coordinate the way MonitorFromPoint expects it.

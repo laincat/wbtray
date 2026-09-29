@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"wbtray/internal/app"
+	"wbtray/internal/i18n"
 	"wbtray/internal/panel"
 	"wbtray/internal/tray"
 	"wbtray/internal/ui"
@@ -37,30 +38,31 @@ func runWindowAction(a *app.App, lc *lifecycle, win *tray.Window, action ui.Acti
 	// rather than wait for.
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
+	lang := a.Lang()
 
 	switch action {
 	case ui.ActionRefresh:
 		a.Refresh()
 		loadWindowData(ctx, a, win)
-		return "已刷新", nil
+		return i18n.T(lang, "act.refreshed"), nil
 
 	case ui.ActionOpenPanel:
 		if err := openURL(a.PanelClient().PanelURL()); err != nil {
 			return "", err
 		}
-		return "已在浏览器打开控制台", nil
+		return i18n.T(lang, "act.opened_console"), nil
 
 	case ui.ActionOpenGatewayDir:
 		if err := openPath(lc.layout.Gateway); err != nil {
 			return "", err
 		}
-		return "已打开网关目录", nil
+		return i18n.T(lang, "act.opened_dir"), nil
 
 	case ui.ActionCopyAddress:
 		if err := copyToClipboard(a.PanelClient().Base()); err != nil {
 			return "", err
 		}
-		return "已复制网关地址", nil
+		return i18n.T(lang, "act.copied_addr"), nil
 
 	case ui.ActionCopyKey:
 		// The key is copied rather than shown. A window with a credential drawn in it
@@ -68,19 +70,19 @@ func runWindowAction(a *app.App, lc *lifecycle, win *tray.Window, action ui.Acti
 		// button is that it is a value nobody should have to read off a screen.
 		key := a.PanelClient().Key()
 		if key == "" {
-			return "没有可复制的密钥：网关尚未读取到配置", nil
+			return i18n.T(lang, "act.no_key"), nil
 		}
 		if err := copyToClipboard(key); err != nil {
 			return "", err
 		}
-		return "已复制 API 密钥", nil
+		return i18n.T(lang, "act.copied_key"), nil
 
 	case ui.ActionTogglePause:
 		a.SetPaused(!a.Paused())
 		if a.Paused() {
-			return "已暂停刷新", nil
+			return i18n.T(lang, "act.paused"), nil
 		}
-		return "已恢复刷新", nil
+		return i18n.T(lang, "act.resumed"), nil
 
 	// The pool-wide maintenance, which is the console's own set of buttons.
 	case ui.ActionCheckin, ui.ActionTravel, ui.ActionActivity,
@@ -93,23 +95,23 @@ func runWindowAction(a *app.App, lc *lifecycle, win *tray.Window, action ui.Acti
 			ui.ActionBalance:   "/panel/api/balance_all",
 		}[action]
 		label := map[ui.Action]string{
-			ui.ActionCheckin:   "全部签到",
-			ui.ActionTravel:    "旅行巡检",
-			ui.ActionActivity:  "活跃上报",
-			ui.ActionKeepalive: "全部保活",
-			ui.ActionBalance:   "刷新余额",
+			ui.ActionCheckin:   i18n.T(lang, "btn.checkin_all"),
+			ui.ActionTravel:    i18n.T(lang, "btn.travel_all"),
+			ui.ActionActivity:  i18n.T(lang, "btn.activity_all"),
+			ui.ActionKeepalive: i18n.T(lang, "btn.keepalive_all"),
+			ui.ActionBalance:   i18n.T(lang, "btn.balance_all"),
 		}[action]
-		return runWindowTask(a, label, path, ctx)
+		return runWindowTask(a, label, path, ctx, lang)
 
 	case ui.ActionScan:
-		return runWindowTask(a, "扫描待办", "/panel/api/tasks/scan_all", ctx)
+		return runWindowTask(a, i18n.T(lang, "btn.scan_all"), "/panel/api/tasks/scan_all", ctx, lang)
 	case ui.ActionRunQueue:
-		return runWindowTask(a, "执行待办", "/panel/api/tasks/run_queue", ctx)
+		return runWindowTask(a, i18n.T(lang, "btn.run_queue"), "/panel/api/tasks/run_queue", ctx, lang)
 
 	// The per-account actions, which are the console's per-row buttons.
 	case ui.ActionAccountCheckin, ui.ActionAccountBalance, ui.ActionAccountRevive:
 		if arg == "" {
-			return "", fmt.Errorf("没有指定账号")
+			return "", fmt.Errorf("%s", i18n.T(lang, "act.no_account"))
 		}
 		what := map[ui.Action]string{
 			ui.ActionAccountCheckin: "acct_checkin",
@@ -117,9 +119,9 @@ func runWindowAction(a *app.App, lc *lifecycle, win *tray.Window, action ui.Acti
 			ui.ActionAccountRevive:  "revive",
 		}[action]
 		label := map[ui.Action]string{
-			ui.ActionAccountCheckin: "签到",
-			ui.ActionAccountBalance: "余额",
-			ui.ActionAccountRevive:  "恢复",
+			ui.ActionAccountCheckin: i18n.T(lang, "btn.acct_checkin"),
+			ui.ActionAccountBalance: i18n.T(lang, "btn.acct_balance"),
+			ui.ActionAccountRevive:  i18n.T(lang, "btn.acct_revive"),
 		}[action]
 		summary, err := a.PanelClient().AccountAction(ctx, arg, what)
 		if err != nil {
@@ -130,16 +132,16 @@ func runWindowAction(a *app.App, lc *lifecycle, win *tray.Window, action ui.Acti
 		a.Refresh()
 		loadWindowData(ctx, a, win)
 		if summary == "" {
-			summary = "完成"
+			summary = i18n.T(lang, "ui.done")
 		}
 		return fmt.Sprintf("%s：%s", label, summary), nil
 	}
-	return "", fmt.Errorf("未知操作 %q", action)
+	return "", fmt.Errorf("%s %q", i18n.T(lang, "act.unknown"), action)
 }
 
 // runWindowTask posts one of the gateway's one-shot maintenance endpoints and reports what
 // came back.
-func runWindowTask(a *app.App, label, path string, ctx context.Context) (string, error) {
+func runWindowTask(a *app.App, label, path string, ctx context.Context, lang string) (string, error) {
 	summary, err := a.PanelClient().Trigger(ctx, path)
 	if err != nil {
 		return "", err
@@ -148,7 +150,7 @@ func runWindowTask(a *app.App, label, path string, ctx context.Context) (string,
 	// than left showing the state before the click.
 	a.Refresh()
 	if summary == "" {
-		summary = "完成"
+		summary = i18n.T(lang, "ui.done")
 	}
 	return fmt.Sprintf("%s：%s", label, summary), nil
 }

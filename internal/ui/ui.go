@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"wbtray/internal/i18n"
 	"wbtray/internal/panel"
 	"wbtray/internal/raster"
 	"wbtray/internal/status"
@@ -70,40 +71,15 @@ var Tabs = []Tab{TabOverview, TabAccounts, TabModels, TabLogs, TabSchedule, TabC
 
 // tabLabel is the rail's wording.
 func tabLabel(t Tab, lang string) string {
-	zh := lang == "zh"
-	switch t {
-	case TabOverview:
-		if zh {
-			return "总览"
-		}
-		return "Overview"
-	case TabAccounts:
-		if zh {
-			return "账号池"
-		}
-		return "Accounts"
-	case TabModels:
-		if zh {
-			return "模型"
-		}
-		return "Models"
-	case TabLogs:
-		if zh {
-			return "日志"
-		}
-		return "Logs"
-	case TabSchedule:
-		if zh {
-			return "调度"
-		}
-		return "Schedule"
-	default:
-		if zh {
-			return "配置"
-		}
-		return "Config"
-	}
+	return i18n.T(lang, "page."+string(t))
 }
+
+// tr is the message for a key in the language this frame is drawn in.
+//
+// It is a method rather than a free function so the call sites read as part of the
+// layout: every string in this file comes from one table, and a frame filled in with
+// literals is what the table exists to prevent.
+func (v View) tr(key string, args ...any) string { return i18n.T(v.Lang, key, args...) }
 
 // Weight is how emphatically a piece of text is drawn.
 type Weight int
@@ -323,12 +299,12 @@ func rail(l *Layout, v View) {
 	// to the page.
 	by := float64(l.H) - FooterH - 52
 	l.Ink.Rect(1, by-8, RailW-1, 1, hairline(p))
-	dot, label := p.Bad, "离线"
+	dot, label := p.Bad, v.tr("health.down")
 	if v.Snap.Reachable {
-		dot, label = p.Green, "正常"
+		dot, label = p.Green, v.tr("health.ok")
 	}
 	if v.Paused {
-		dot, label = p.Muted, "已暂停"
+		dot, label = p.Muted, v.tr("health.paused")
 	}
 	l.Ink.Circle(20, by+8, 4, dot)
 	l.add(label, 32, by+2, 12, Body, p.Text)
@@ -396,7 +372,7 @@ func headerLine(l *Layout, v View, title string, buttons []button, extra ...butt
 	p := v.Palette
 	l.add(title, RailW+PadX, 16, 15, Figure, p.Text)
 	if v.Snap.Uptime > 0 {
-		l.add("运行 "+uptime(v.Snap.Uptime),
+		l.add(v.tr("ui.running", uptime(v.Snap.Uptime, v.Lang)),
 			RailW+PadX+textWidth(title, 15)+10, 19, 11, Label, p.Faint)
 	}
 	all := append(append([]button{}, buttons...), extra...)
@@ -460,11 +436,11 @@ func footer(l *Layout, v View) {
 	msg := v.Action
 	col := p.Muted
 	if v.Pending {
-		msg = "正在执行…"
+		msg = v.tr("ui.pending")
 		col = p.Blue
 	}
 	if msg == "" {
-		msg = fmt.Sprintf("账号 %d/%d 可用 · 积分 %s · 在途 %d",
+		msg = v.tr("ui.summary",
 			v.Snap.Ready(), v.Snap.Total, comma(v.Snap.CreditTotal()), v.Snap.InFlight())
 	}
 	l.add(clip(msg, 110), RailW+PadX, y+9, 11.5, Label, col)
@@ -477,9 +453,9 @@ func footer(l *Layout, v View) {
 // overviewPage is the figures page.
 func overviewPage(l *Layout, v View) {
 	p, snap := v.Palette, v.Snap
-	headerLine(l, v, "总览", []button{
-		{Label: "打开控制台", Action: ActionOpenPanel},
-		{Label: "刷新", Action: ActionRefresh, Primary: true},
+	headerLine(l, v, v.tr("page.overview"), []button{
+		{Label: v.tr("btn.open_panel"), Action: ActionOpenPanel},
+		{Label: v.tr("btn.refresh"), Action: ActionRefresh, Primary: true},
 	})
 
 	x, y, w, _ := contentBox(l, v)
@@ -490,11 +466,11 @@ func overviewPage(l *Layout, v View) {
 		label, value, note string
 		accent             raster.RGBA
 	}{
-		{"积分剩余", comma(snap.CreditTotal()), "", p.Blue},
-		{"账号可用", fmt.Sprintf("%d/%d", snap.Ready(), snap.Total), "", p.Green},
-		{"24 小时请求", compact(float64(snap.Usage.Requests)),
-			fmt.Sprintf("%d 失败", snap.Usage.Errors), p.Warn},
-		{"Token 合计", compact(float64(snap.Usage.TotalTokens)), "", p.Text},
+		{v.tr("fig.credits"), comma(snap.CreditTotal()), "", p.Blue},
+		{v.tr("fig.accounts"), fmt.Sprintf("%d/%d", snap.Ready(), snap.Total), "", p.Green},
+		{v.tr("fig.requests24"), compact(float64(snap.Usage.Requests)),
+			v.tr("fig.errors", snap.Usage.Errors), p.Warn},
+		{v.tr("fig.tokens"), compact(float64(snap.Usage.TotalTokens)), "", p.Text},
 	}
 	for i, f := range figures {
 		fx := x + float64(i)*(cw+gap)
@@ -513,8 +489,9 @@ func overviewPage(l *Layout, v View) {
 	// many are well; a row of dots says which, and where the cooling one sits in the
 	// order is what an operator is looking for.
 	if n := len(snap.Accounts); n > 0 {
-		l.add("账号状态", x, y, 11, Label, p.Muted)
-		px := x + textWidth("账号状态", 11) + 12
+		cap := v.tr("cap.account_pips")
+		l.add(cap, x, y, 11, Label, p.Muted)
+		px := x + textWidth(cap, 11) + 12
 		shown := n
 		if room := int((w - (px - x)) / 16); shown > room {
 			shown = room
@@ -548,16 +525,16 @@ func overviewPage(l *Layout, v View) {
 	chartCard(l, v, x, y, w, chartH)
 	y += chartH + gap
 
-	l.add("维护操作", x, y, 11, Label, p.Muted)
+	l.add(v.tr("cap.maintenance"), x, y, 11, Label, p.Muted)
 	y += 18
 	acts := []button{
-		{Label: "全部签到", Action: ActionCheckin},
-		{Label: "旅行巡检", Action: ActionTravel},
-		{Label: "活跃上报", Action: ActionActivity},
-		{Label: "全部保活", Action: ActionKeepalive},
-		{Label: "刷新余额", Action: ActionBalance},
-		{Label: "扫描待办", Action: ActionScan},
-		{Label: "执行待办", Action: ActionRunQueue},
+		{Label: v.tr("btn.checkin_all"), Action: ActionCheckin},
+		{Label: v.tr("btn.travel_all"), Action: ActionTravel},
+		{Label: v.tr("btn.activity_all"), Action: ActionActivity},
+		{Label: v.tr("btn.keepalive_all"), Action: ActionKeepalive},
+		{Label: v.tr("btn.balance_all"), Action: ActionBalance},
+		{Label: v.tr("btn.scan_all"), Action: ActionScan},
+		{Label: v.tr("btn.run_queue"), Action: ActionRunQueue},
 	}
 	bx := x
 	for _, b := range acts {
@@ -588,11 +565,11 @@ func chartCard(l *Layout, v View, x, y, w, h float64) {
 	innerX := x + cardPadX
 	innerY := y + cardPadY
 	innerW := w - 2*cardPadX
-	l.add("请求趋势", innerX, innerY, 11, Label, p.Muted)
+	l.add(v.tr("cap.trend"), innerX, innerY, 11, Label, p.Muted)
 
 	series := v.Snap.SeriesFor("requests")
 	if len(series) < 2 {
-		l.add("暂无数据（网关未运行或尚未有请求）", innerX, innerY+40, 12, Body, p.Muted)
+		l.add(v.tr("chart.empty"), innerX, innerY+40, 12, Body, p.Muted)
 		return
 	}
 	top := innerY + 26
@@ -635,16 +612,16 @@ func chartCard(l *Layout, v View, x, y, w, h float64) {
 	last := pts[len(pts)-1]
 	l.Ink.Circle(last.X, last.Y, 3.5, p.Blue)
 	l.add(compact(peak), innerX, innerY+16, 10.5, Label, p.Muted)
-	l.addRight(fmt.Sprintf("过去 %d 小时", len(series)), innerX+innerW, innerY+16, 10.5, Label, p.Muted)
+	l.addRight(v.tr("ui.last_hours", len(series)), innerX+innerW, innerY+16, 10.5, Label, p.Muted)
 }
 
 // accountsPage is the pool, with the per-account actions the console offers.
 func accountsPage(l *Layout, v View) {
 	p, snap := v.Palette, v.Snap
-	headerLine(l, v, "账号池", []button{
-		{Label: "添加账号", Action: ActionOpenPanel},
-		{Label: "全部签到", Action: ActionCheckin},
-		{Label: "刷新余额", Action: ActionBalance, Primary: true},
+	headerLine(l, v, v.tr("page.accounts"), []button{
+		{Label: v.tr("btn.add_account"), Action: ActionOpenPanel},
+		{Label: v.tr("btn.checkin_all"), Action: ActionCheckin},
+		{Label: v.tr("btn.balance_all"), Action: ActionBalance, Primary: true},
 	})
 
 	x, y, w, h := contentBox(l, v)
@@ -654,7 +631,7 @@ func accountsPage(l *Layout, v View) {
 	cur := y + cardPadY
 
 	if len(snap.Accounts) == 0 {
-		l.add("网关还没有账号。用「添加账号」在控制台里登录一个。", innerX, cur+10, 12.5, Body, p.Muted)
+		l.add(v.tr("empty.no_accounts"), innerX, cur+10, 12.5, Body, p.Muted)
 		return
 	}
 
@@ -665,9 +642,10 @@ func accountsPage(l *Layout, v View) {
 		at    float64
 		right bool
 	}{
-		{"账号", 0, false}, {"状态", 0.22, false}, {"积分", 0.34, true},
-		{"请求 / 失败", 0.52, true}, {"延迟", 0.64, true},
-		{"吐字", 0.73, true}, {"最近使用", 0.82, true}, {"操作", 1.0, true},
+		{v.tr("col.account"), 0, false}, {v.tr("col.state"), 0.22, false},
+		{v.tr("col.credits"), 0.34, true}, {v.tr("col.requests"), 0.52, true},
+		{v.tr("col.latency"), 0.64, true}, {v.tr("col.tps"), 0.73, true},
+		{v.tr("col.last_used"), 0.82, true}, {v.tr("col.actions"), 1.0, true},
 	}
 	for _, c := range cols {
 		cx := innerX + innerW*c.at
@@ -705,17 +683,17 @@ func accountsPage(l *Layout, v View) {
 
 		// The state, coloured: it is read before the numbers, because a disabled
 		// account's credits are not available whatever the figure says.
-		state, sc := "可用", p.Green
+		state, sc := v.tr("acct.ready"), p.Green
 		switch {
 		case a.Disabled:
-			state, sc = "已禁用", p.Muted
+			state, sc = v.tr("acct.disabled"), p.Muted
 		case a.Cooling:
-			state, sc = "冷却中", p.Warn
+			state, sc = v.tr("acct.cooling"), p.Warn
 			if left := a.CoolRemaining(); left > 0 {
-				state = "冷却 " + duration(left)
+				state = v.tr("acct.cooling_left", duration(left))
 			}
 		case a.InFlight > 0:
-			state, sc = fmt.Sprintf("在途 %d", a.InFlight), p.Blue
+			state, sc = v.tr("acct.inflight", a.InFlight), p.Blue
 		}
 		l.add(state, innerX+innerW*0.22, rowY+8, 12, Body, sc)
 
@@ -736,7 +714,7 @@ func accountsPage(l *Layout, v View) {
 		} else {
 			l.addRight("—", innerX+innerW*0.73, rowY+8, 12, Body, p.Faint)
 		}
-		l.addRight(since(a.LastUsed), innerX+innerW*0.82, rowY+9, 11, Label, p.Faint)
+		l.addRight(since(a.LastUsed, v.Lang), innerX+innerW*0.82, rowY+9, 11, Label, p.Faint)
 
 		// The per-account actions, as small buttons. They are the console's own
 		// per-row actions, with one difference: the console confirms an account
@@ -747,14 +725,14 @@ func accountsPage(l *Layout, v View) {
 			label  string
 			action Action
 		}{
-			{"签到", ActionAccountCheckin},
-			{"余额", ActionAccountBalance},
+			{v.tr("btn.acct_checkin"), ActionAccountCheckin},
+			{v.tr("btn.acct_balance"), ActionAccountBalance},
 		}
 		if a.Disabled {
 			btns = append(btns, struct {
 				label  string
 				action Action
-			}{"恢复", ActionAccountRevive})
+			}{v.tr("btn.acct_revive"), ActionAccountRevive})
 		}
 		btnRight := innerX + innerW
 		for _, b := range btns {
@@ -767,7 +745,7 @@ func accountsPage(l *Layout, v View) {
 		}
 	}
 	if shown < len(snap.Accounts) {
-		l.add(fmt.Sprintf("… 已显示 %d/%d 个；滚轮可滚动", first+shown, len(snap.Accounts)),
+		l.add(v.tr("ui.more_rows", first+shown, len(snap.Accounts)),
 			innerX, cur+float64(shown)*tableRowH+6, 11, Label, p.Muted)
 	}
 }
@@ -775,9 +753,9 @@ func accountsPage(l *Layout, v View) {
 // modelsPage is the catalogue: what the gateway can serve, and what each costs.
 func modelsPage(l *Layout, v View) {
 	p := v.Palette
-	headerLine(l, v, "模型", []button{
-		{Label: "打开控制台", Action: ActionOpenPanel},
-		{Label: "刷新", Action: ActionRefresh, Primary: true},
+	headerLine(l, v, v.tr("page.models"), []button{
+		{Label: v.tr("btn.open_panel"), Action: ActionOpenPanel},
+		{Label: v.tr("btn.refresh"), Action: ActionRefresh, Primary: true},
 	})
 
 	x, y, w, h := contentBox(l, v)
@@ -787,7 +765,7 @@ func modelsPage(l *Layout, v View) {
 	cur := y + cardPadY
 
 	if len(v.Models) == 0 {
-		l.add("暂无模型数据。网关需要至少一个可用账号才能查询模型目录。", innerX, cur+10, 12.5, Body, p.Muted)
+		l.add(v.tr("empty.no_models"), innerX, cur+10, 12.5, Body, p.Muted)
 		return
 	}
 
@@ -796,8 +774,9 @@ func modelsPage(l *Layout, v View) {
 		at    float64
 		right bool
 	}{
-		{"模型", 0, false}, {"计价", 0.26, true}, {"上下文", 0.38, true},
-		{"最大输出", 0.51, true}, {"档位", 0.64, false}, {"能力", 0.80, false},
+		{v.tr("col.model"), 0, false}, {v.tr("col.price"), 0.26, true},
+		{v.tr("col.context"), 0.38, true}, {v.tr("col.max_output"), 0.51, true},
+		{v.tr("col.effort"), 0.64, false}, {v.tr("col.caps"), 0.80, false},
 	}
 	for _, c := range cols {
 		cx := innerX + innerW*c.at
@@ -849,18 +828,18 @@ func modelsPage(l *Layout, v View) {
 
 		var caps []string
 		if m.SupportsImages {
-			caps = append(caps, "图")
+			caps = append(caps, v.tr("cap.img"))
 		}
 		if m.SupportsReasoning {
-			caps = append(caps, "推理")
+			caps = append(caps, v.tr("cap.reasoning"))
 		}
 		if m.SupportsToolCall {
-			caps = append(caps, "工具")
+			caps = append(caps, v.tr("cap.tools"))
 		}
 		l.add(strings.Join(caps, " · "), innerX+innerW*0.80, rowY+9, 11, Label, p.Muted)
 	}
 	if shown < len(v.Models) {
-		l.add(fmt.Sprintf("… 已显示 %d/%d 个；滚轮可滚动", first+shown, len(v.Models)),
+		l.add(v.tr("ui.more_rows", first+shown, len(v.Models)),
 			innerX, cur+float64(shown)*tableRowH+6, 11, Label, p.Muted)
 	}
 }
@@ -868,8 +847,8 @@ func modelsPage(l *Layout, v View) {
 // logsPage is the gateway's own log ring.
 func logsPage(l *Layout, v View) {
 	p := v.Palette
-	headerLine(l, v, "运行日志", []button{
-		{Label: "刷新", Action: ActionRefresh, Primary: true},
+	headerLine(l, v, v.tr("page.logs"), []button{
+		{Label: v.tr("btn.refresh"), Action: ActionRefresh, Primary: true},
 	})
 
 	x, y, w, h := contentBox(l, v)
@@ -878,7 +857,7 @@ func logsPage(l *Layout, v View) {
 	cur := y + cardPadY
 
 	if len(v.Logs) == 0 {
-		l.add("暂无日志。", innerX, cur+10, 12.5, Body, p.Muted)
+		l.add(v.tr("empty.no_logs"), innerX, cur+10, 12.5, Body, p.Muted)
 		return
 	}
 	// The newest line first, which is how a log is read when something has just
@@ -921,7 +900,7 @@ func logsPage(l *Layout, v View) {
 		l.add(clip(e.Text, 150), innerX+62, rowY+2, 11.5, Body, col)
 	}
 	if shown < len(logs)+first {
-		l.add(fmt.Sprintf("… 已显示 %d/%d 行；滚轮可滚动", first+shown, first+len(logs)),
+		l.add(v.tr("ui.more_lines", first+shown, first+len(logs)),
 			innerX, cur+float64(shown)*lineH+6, 11, Label, p.Muted)
 	}
 }
@@ -934,9 +913,9 @@ func logsPage(l *Layout, v View) {
 // be silently overwritten.
 func schedulePage(l *Layout, v View) {
 	p, s := v.Palette, v.Schedule
-	headerLine(l, v, "调度", []button{
-		{Label: "在控制台编辑", Action: ActionOpenPanel},
-		{Label: "刷新", Action: ActionRefresh, Primary: true},
+	headerLine(l, v, v.tr("page.schedule"), []button{
+		{Label: v.tr("btn.edit_in_console"), Action: ActionOpenPanel},
+		{Label: v.tr("btn.refresh"), Action: ActionRefresh, Primary: true},
 	})
 
 	x, y, w, h := contentBox(l, v)
@@ -946,10 +925,10 @@ func schedulePage(l *Layout, v View) {
 	cur := y + cardPadY
 
 	if !s.Known {
-		l.add("尚未读取网关配置。点击「刷新」重新读取。", innerX, cur+10, 12.5, Body, p.Muted)
+		l.add(v.tr("empty.no_config"), innerX, cur+10, 12.5, Body, p.Muted)
 		return
 	}
-	l.add("定时任务", innerX, cur, 11, Label, p.Muted)
+	l.add(v.tr("cap.schedule"), innerX, cur, 11, Label, p.Muted)
 	cur += 22
 
 	rows := []struct {
@@ -957,11 +936,11 @@ func schedulePage(l *Layout, v View) {
 		on    bool
 		when  string
 	}{
-		{"签到", s.Checkin, "09:00 · 21:00"},
-		{"旅行", s.Travel, "09:00 · 21:00"},
-		{"活跃上报", s.Activity, "10:00"},
-		{"保活", s.Keepalive, "22:00"},
-		{"余额刷新", s.BalanceRefresh, "每 5 分钟"},
+		{v.tr("sched.checkin"), s.Checkin, "09:00 · 21:00"},
+		{v.tr("sched.travel"), s.Travel, "09:00 · 21:00"},
+		{v.tr("sched.activity"), s.Activity, "10:00"},
+		{v.tr("sched.keepalive"), s.Keepalive, "22:00"},
+		{v.tr("sched.balance"), s.BalanceRefresh, v.tr("sched.every5min")},
 	}
 	for i, r := range rows {
 		rowY := cur + float64(i)*tableRowH
@@ -970,20 +949,20 @@ func schedulePage(l *Layout, v View) {
 		}
 		l.add(r.label, innerX, rowY+8, 12.5, Body, p.Text)
 		l.add(r.when, innerX+innerW*0.30, rowY+9, 11.5, Label, p.Muted)
-		state, col := "已启用", p.Green
+		state, col := v.tr("sched.on"), p.Green
 		if !r.on {
-			state, col = "已关闭", p.Muted
+			state, col = v.tr("sched.off"), p.Muted
 		}
 		l.addRight(state, innerX+innerW, rowY+8, 12, Body, col)
 	}
 	cur += float64(len(rows))*tableRowH + 14
 
-	l.add("说明", innerX, cur, 11, Label, p.Muted)
+	l.add(v.tr("cap.notes"), innerX, cur, 11, Label, p.Muted)
 	cur += 20
 	for _, line := range []string{
-		"任务的开关写在网关自己的 config.json 里，在控制台的配置页修改。",
-		"这个窗口只读，因为两处可写同一个文件时，后写的一方会静默覆盖前一方。",
-		"要立即执行一次，用总览页的维护操作。",
+		v.tr("note.schedule_1"),
+		v.tr("note.schedule_2"),
+		v.tr("note.schedule_3"),
 	} {
 		if cur > y+h-cardPadY-16 {
 			break
@@ -1001,11 +980,11 @@ func schedulePage(l *Layout, v View) {
 // would be a file viewer rather than a console.
 func configPage(l *Layout, v View) {
 	p := v.Palette
-	headerLine(l, v, "配置", []button{
-		{Label: "复制密钥", Action: ActionCopyKey},
-		{Label: "复制地址", Action: ActionCopyAddress},
-		{Label: "打开网关目录", Action: ActionOpenGatewayDir},
-		{Label: "在控制台编辑", Action: ActionOpenPanel, Primary: true},
+	headerLine(l, v, v.tr("page.config"), []button{
+		{Label: v.tr("btn.copy_key"), Action: ActionCopyKey},
+		{Label: v.tr("btn.copy_addr"), Action: ActionCopyAddress},
+		{Label: v.tr("btn.open_gateway_dir"), Action: ActionOpenGatewayDir},
+		{Label: v.tr("btn.edit_in_console"), Action: ActionOpenPanel, Primary: true},
 	})
 
 	x, y, w, h := contentBox(l, v)
@@ -1015,18 +994,18 @@ func configPage(l *Layout, v View) {
 	cur := y + cardPadY
 
 	if v.Config == "" {
-		l.add("尚未读取网关配置。点击「刷新」重新读取。", innerX, cur+10, 12.5, Body, p.Muted)
+		l.add(v.tr("empty.no_config"), innerX, cur+10, 12.5, Body, p.Muted)
 		return
 	}
-	l.add("网关配置（只读）", innerX, cur, 11, Label, p.Muted)
+	l.add(v.tr("cap.gateway_config"), innerX, cur, 11, Label, p.Muted)
 	if v.ConfigPath != "" {
 		l.addRight(v.ConfigPath, innerX+innerW, cur, 11, Label, p.Faint)
 	}
 	cur += 22
 
-	for _, f := range configFields(v.Config) {
+	for _, f := range configFields(v.Config, v.Lang) {
 		if cur > y+h-cardPadY-16 {
-			l.add("… 其余设置见控制台", innerX, cur, 11, Label, p.Faint)
+			l.add(v.tr("ui.more_settings"), innerX, cur, 11, Label, p.Faint)
 			break
 		}
 		l.add(f.label, innerX, cur, 12, Body, p.Text)
@@ -1044,7 +1023,7 @@ type configField struct{ label, value string }
 // It is parsed rather than pattern-matched: the gateway's configuration is nested a
 // long way down — the schedule is four levels in — and a regular expression over the
 // raw text would report the first "enabled" it found for every question that has one.
-func configFields(raw string) []configField {
+func configFields(raw, lang string) []configField {
 	var c struct {
 		Listen  string `json:"listen"`
 		AuthDir string `json:"auth_dir"`
@@ -1071,31 +1050,31 @@ func configFields(raw string) []configField {
 	if err := json.Unmarshal([]byte(raw), &c); err != nil {
 		// Unparseable: show it as it came rather than showing nothing, because the
 		// text is still the answer to "what is in there".
-		return []configField{{"原始内容", clip(raw, 90)}}
+		return []configField{{i18n.T(lang, "cfg.raw"), clip(raw, 90)}}
 	}
 	on := func(b bool) string {
 		if b {
-			return "已启用"
+			return i18n.T(lang, "cfg.on")
 		}
-		return "已关闭"
+		return i18n.T(lang, "cfg.off")
 	}
-	secret := "未设置"
+	secret := i18n.T(lang, "cfg.unset")
 	if c.APIKey != "" {
-		secret = fmt.Sprintf("已设置（%d 位）", len([]rune(c.APIKey)))
+		secret = i18n.T(lang, "cfg.set_length", len([]rune(c.APIKey)))
 	}
 	return []configField{
-		{"监听地址", c.Listen},
-		{"API 密钥", secret},
-		{"服务总开关", on(c.Global.Enabled)},
-		{"凭证目录", c.AuthDir},
-		{"单账号并发", fmt.Sprintf("%d", c.Pool.MaxInFlight)},
-		{"全局并发", fmt.Sprintf("%d", c.Pool.MaxInFlightGlobal)},
-		{"熔断阈值", fmt.Sprintf("%d 次", c.Pool.BreakerThreshold)},
-		{"熔断冷却", c.Pool.BreakerCooldown},
-		{"即将过期窗口", c.Pool.ExpiringSoon},
-		{"粘性会话", on(c.Sticky.Enabled) + " · " + c.Sticky.TTL},
-		{"上游超时", fmt.Sprintf("%d 秒", c.Upstream.TimeoutSeconds)},
-		{"首字节超时", fmt.Sprintf("%d 秒", c.Upstream.HeaderTimeoutSeconds)},
+		{i18n.T(lang, "cfg.listen"), c.Listen},
+		{i18n.T(lang, "cfg.api_key"), secret},
+		{i18n.T(lang, "cfg.global"), on(c.Global.Enabled)},
+		{i18n.T(lang, "cfg.auth_dir"), c.AuthDir},
+		{i18n.T(lang, "cfg.max_inflight"), fmt.Sprintf("%d", c.Pool.MaxInFlight)},
+		{i18n.T(lang, "cfg.max_inflight_global"), fmt.Sprintf("%d", c.Pool.MaxInFlightGlobal)},
+		{i18n.T(lang, "cfg.breaker_threshold"), i18n.T(lang, "cfg.times", c.Pool.BreakerThreshold)},
+		{i18n.T(lang, "cfg.breaker_cooldown"), c.Pool.BreakerCooldown},
+		{i18n.T(lang, "cfg.expiring_soon"), c.Pool.ExpiringSoon},
+		{i18n.T(lang, "cfg.sticky"), on(c.Sticky.Enabled) + " · " + c.Sticky.TTL},
+		{i18n.T(lang, "cfg.upstream_timeout"), i18n.T(lang, "cfg.seconds", c.Upstream.TimeoutSeconds)},
+		{i18n.T(lang, "cfg.header_timeout"), i18n.T(lang, "cfg.seconds", c.Upstream.HeaderTimeoutSeconds)},
 	}
 }
 
@@ -1155,16 +1134,16 @@ func contextSize(n int64) string {
 func oneDecimal(v float64) string { return fmt.Sprintf("%.1f", v) }
 
 // uptime renders a process lifetime the way a header wants it.
-func uptime(sec int64) string {
+func uptime(sec int64, lang string) string {
 	switch {
 	case sec < 60:
-		return fmt.Sprintf("%d 秒", sec)
+		return i18n.T(lang, "unit.sec", sec)
 	case sec < 3600:
-		return fmt.Sprintf("%d 分钟", sec/60)
+		return i18n.T(lang, "unit.min", sec/60)
 	case sec < 86400:
-		return fmt.Sprintf("%d 小时 %d 分", sec/3600, (sec%3600)/60)
+		return i18n.T(lang, "unit.hour_min", sec/3600, (sec%3600)/60)
 	default:
-		return fmt.Sprintf("%d 天 %d 小时", sec/86400, (sec%86400)/3600)
+		return i18n.T(lang, "unit.day_hour", sec/86400, (sec%86400)/3600)
 	}
 }
 
@@ -1183,20 +1162,20 @@ func duration(d time.Duration) string {
 
 // since renders how long ago something happened, which is the one column in the
 // account table whose meaning is a duration rather than a count.
-func since(t time.Time) string {
+func since(t time.Time, lang string) string {
 	if t.IsZero() {
 		return "—"
 	}
 	d := time.Since(t)
 	switch {
 	case d < time.Minute:
-		return "刚刚"
+		return i18n.T(lang, "unit.just_now")
 	case d < time.Hour:
-		return fmt.Sprintf("%d 分钟前", int(d.Minutes()))
+		return i18n.T(lang, "unit.min_ago", int(d.Minutes()))
 	case d < 24*time.Hour:
-		return fmt.Sprintf("%d 小时前", int(d.Hours()))
+		return i18n.T(lang, "unit.hour_ago", int(d.Hours()))
 	default:
-		return fmt.Sprintf("%d 天前", int(d.Hours()/24))
+		return i18n.T(lang, "unit.day_ago", int(d.Hours()/24))
 	}
 }
 

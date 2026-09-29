@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 
+	"wbtray/internal/i18n"
 	"wbtray/internal/raster"
 	"wbtray/internal/status"
 	"wbtray/internal/theme"
@@ -101,6 +102,16 @@ func BuildTray(v TrayView) TrayLayout {
 	l.W, l.H = PanelW, h
 
 	l.Ink = *raster.New(PanelW, h)
+	// The surface is filled with the card's own colour before the card is drawn.
+	//
+	// The card has rounded corners, and the window it is presented in is clipped to a
+	// rounded rectangle of the same radius — but a drawn corner is anti-aliased and a
+	// clipped one is not, so the two do not land on exactly the same pixels. Whatever
+	// is left between them is a pixel the layout never painted, and an unpainted pixel
+	// on a 32-bit surface reaches the screen as black. Filling first makes the worst
+	// case a pixel of the card's own background instead: invisible either way, rather
+	// than the four black corners this used to show.
+	l.Ink.Fill(p.Surface)
 	// The surface and its hairline: the panel is a card, like every panel in the
 	// console. It is the same design at a smaller size, which is what keeps the two
 	// from looking like two programs.
@@ -112,18 +123,19 @@ func BuildTray(v TrayView) TrayLayout {
 	w := float64(PanelW - 2*panelPadX)
 
 	// The hero: the state, who is serving, and the reading.
+	tr := func(key string, args ...any) string { return i18n.T(v.Lang, key, args...) }
 	dot := p.Bad
-	state := "离线"
+	state := tr("health.down")
 	if v.Snap.Reachable {
-		dot, state = p.Green, "正常"
+		dot, state = p.Green, tr("health.ok")
 	}
 	if v.Paused {
-		dot, state = p.Muted, "已暂停"
+		dot, state = p.Muted, tr("health.paused")
 	}
 	l.Ink.Circle(x+5, y+10, 5, dot)
 	l.addRight(state, x+w, y, 11.5, Label, p.Muted)
 
-	name := "尚未连接"
+	name := tr("panel.not_connected")
 	if acct, ok := v.Snap.Current(); ok && v.Snap.Reachable {
 		if acct.Nickname != "" {
 			name = acct.Nickname
@@ -133,7 +145,7 @@ func BuildTray(v TrayView) TrayLayout {
 	}
 	l.add(clip(name, 16), x+16, y+1, 14, Figure, p.Text)
 	if v.Snap.Reachable {
-		l.add("积分剩余", x+16, y+20, 10.5, Label, p.Faint)
+		l.add(tr("fig.credits"), x+16, y+20, 10.5, Label, p.Faint)
 		l.addRight(comma(v.Snap.CreditTotal()), x+w, y+18, 13, Body, p.Text)
 	}
 	y += heroH
@@ -143,15 +155,15 @@ func BuildTray(v TrayView) TrayLayout {
 	if series := v.Snap.SeriesFor("requests"); len(series) >= 2 {
 		l.spark(x, y, w, sparkH, series)
 	} else {
-		l.add("暂无请求数据", x, y+sparkH/2-8, 11.5, Label, p.Muted)
+		l.add(tr("panel.no_series"), x, y+sparkH/2-8, 11.5, Label, p.Muted)
 	}
 	y += sparkH + 6
 
 	// The figures, three across, each in its own colour.
 	third := w / 3
-	l.metric(x, y, "请求", compact(float64(v.Snap.Usage.Requests)), p.Blue)
-	l.metric(x+third, y, "延迟", oneDecimal(v.Snap.Usage.AvgLatencyMs/1000)+"s", p.Warn)
-	l.metric(x+2*third, y, "吐字", fmt.Sprintf("%.0f", v.Snap.Usage.AvgTPS), p.Green)
+	l.metric(x, y, tr("col.requests_short"), compact(float64(v.Snap.Usage.Requests)), p.Blue)
+	l.metric(x+third, y, tr("col.latency"), oneDecimal(v.Snap.Usage.AvgLatencyMs/1000)+"s", p.Warn)
+	l.metric(x+2*third, y, tr("col.tps"), fmt.Sprintf("%.0f", v.Snap.Usage.AvgTPS), p.Green)
 	y += metricH + sepGap
 
 	// The switches. These are the rows a native menu cannot have, and they are worth
@@ -159,31 +171,31 @@ func BuildTray(v TrayView) TrayLayout {
 	// "Pause" and "Resume" are one row with two words that have to be told apart.
 	l.separator(x, y, w)
 	y += sepGap
-	l.boolean(x, y, w, "暂停刷新", v.Paused, TrayTogglePause)
+	l.boolean(x, y, w, tr("panel.pause"), v.Paused, TrayTogglePause)
 	y += rowH
-	l.boolean(x, y, w, "随系统启动", v.Auto, TrayToggleAuto)
+	l.boolean(x, y, w, tr("panel.autostart"), v.Auto, TrayToggleAuto)
 	y += rowH + sepGap
 
 	// The rows into the console.
 	l.separator(x, y, w)
 	y += sepGap
-	l.row(x, y, w, "打开控制台", "", TrayOpen, string(TabOverview))
+	l.row(x, y, w, tr("btn.open_panel"), "", TrayOpen, string(TabOverview))
 	y += rowH
 	gwValue := v.Snap.Version
 	if !v.Snap.Process.Found {
-		gwValue = "未运行"
+		gwValue = tr("gw.not_running")
 		if !v.Installed {
-			gwValue = "未安装"
+			gwValue = tr("gw.not_installed")
 		}
 	}
-	l.row(x, y, w, "网关控制台", gwValue, TrayOpen, string(TabSchedule))
+	l.row(x, y, w, tr("panel.gateway_console"), gwValue, TrayOpen, string(TabSchedule))
 	y += rowH
-	l.row(x, y, w, "账号管理", fmt.Sprintf("%d/%d", v.Snap.Ready(), v.Snap.Total),
+	l.row(x, y, w, tr("panel.accounts"), fmt.Sprintf("%d/%d", v.Snap.Ready(), v.Snap.Total),
 		TrayOpen, string(TabAccounts))
 	y += rowH
-	l.row(x, y, w, "模型与日志", "", TrayOpen, string(TabModels))
+	l.row(x, y, w, tr("panel.models_logs"), "", TrayOpen, string(TabModels))
 	y += rowH
-	l.row(x, y, w, "退出", "", TrayQuit, "")
+	l.row(x, y, w, tr("menu.exit"), "", TrayQuit, "")
 
 	return l
 }

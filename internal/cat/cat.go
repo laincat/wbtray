@@ -1,5 +1,5 @@
-// Package cat draws the mascot used by the tray's mascot icon style and by the
-// chart window's title.
+// Package cat draws the mascot used by the tray's cat icon style and by the
+// application icon's cat mark.
 //
 // The geometry is a rounded-polygon cat expressed in a 1024-unit master space,
 // so a size change is a scale change rather than a redraw. It is deliberately a

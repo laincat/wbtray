@@ -87,6 +87,10 @@ type Window struct {
 	// by the application.
 	snapshot func() status.Snapshot
 	palette  func() theme.Palette
+	// lang says which language the frame is laid out in. It is a source rather than
+	// a field so changing it in the menu takes effect on the next repaint rather than
+	// on the next launch.
+	lang func() string
 	// act runs one of the layout's actions. It is called on a goroutine so a
 	// network round trip cannot block the message thread.
 	act func(ui.Action, string)
@@ -177,7 +181,7 @@ func windowProc(hwnd uintptr, msg uint32, wparam uintptr, lparam unsafe.Pointer)
 	switch msg {
 	case wmSize:
 		w.mu.Lock()
-		w.w, w.h = int(winapi.LowWord(wparam)), int(winapi.HighWord(wparam))
+		w.w, w.h = winapi.ClientSize(uintptr(lparam))
 		// The text surface is sized to the window, so a resize rebuilds it. The old
 		// one is released first: a DIB per resize with nothing freeing them would
 		// leak a megabyte for a minute of dragging.
@@ -198,7 +202,8 @@ func windowProc(hwnd uintptr, msg uint32, wparam uintptr, lparam unsafe.Pointer)
 		return 0
 
 	case wmLButtonDown:
-		x, y := float64(int32(winapi.LowWord(wparam))), float64(int32(winapi.HighWord(wparam)))
+		mx, my := winapi.MousePos(uintptr(lparam))
+		x, y := float64(mx), float64(my)
 		w.click(x, y)
 		return 0
 
@@ -210,7 +215,8 @@ func windowProc(hwnd uintptr, msg uint32, wparam uintptr, lparam unsafe.Pointer)
 		return 0
 
 	case wmMouseMove:
-		x, y := float64(int32(winapi.LowWord(wparam))), float64(int32(winapi.HighWord(wparam)))
+		mx, my := winapi.MousePos(uintptr(lparam))
+		x, y := float64(mx), float64(my)
 		w.hoverAt(x, y)
 		return 0
 
@@ -306,13 +312,11 @@ func (w *Window) click(x, y float64) {
 func (w *Window) finish(msg string, err error) {
 	w.mu.Lock()
 	w.pending = false
-	if err != nil {
-		w.action = "失败：" + err.Error()
-	} else if msg == "" {
-		w.action = "完成"
-	} else {
-		w.action = msg
-	}
+	// The message is composed by the caller, which is the only place that knows
+	// what the action was and which language to say it in. This used to build one
+	// here from literals, which put Chinese into an English window.
+	_ = err
+	w.action = msg
 	w.mu.Unlock()
 	w.Invalidate()
 }
@@ -365,6 +369,7 @@ func (w *Window) paint() {
 	tab := w.tab
 	models, logs, sched, cfg := w.models, w.logs, w.schedule, w.config
 	action, pending := w.action, w.pending
+	lang := w.lang
 	paused := false
 	scrollLogs, scrollModels, scrollAccts := w.scroll[ui.TabLogs], w.scroll[ui.TabModels], w.scroll[ui.TabAccounts]
 	w.mu.Unlock()
@@ -373,6 +378,10 @@ func (w *Window) paint() {
 		return
 	}
 	p := pal()
+	language := "en"
+	if lang != nil {
+		language = lang()
+	}
 	cfgPath := ""
 	if cm, ok := configPathHolder(); ok {
 		cfgPath = cm
@@ -381,7 +390,7 @@ func (w *Window) paint() {
 		W: ww, H: hh,
 		Tab:            tab,
 		Snap:           snap(),
-		Lang:           "zh",
+		Lang:           language,
 		Palette:        p,
 		Action:         action,
 		Pending:        pending,
@@ -466,6 +475,14 @@ func SetConfigPath(fn func() (string, bool)) { configPathHolder = fn }
 func (w *Window) SetSources(snapshot func() status.Snapshot, palette func() theme.Palette) {
 	w.mu.Lock()
 	w.snapshot, w.palette = snapshot, palette
+	w.mu.Unlock()
+}
+
+// SetLang installs where the window's language comes from. It defaults to English
+// so a window built without one still lays out.
+func (w *Window) SetLang(fn func() string) {
+	w.mu.Lock()
+	w.lang = fn
 	w.mu.Unlock()
 }
 

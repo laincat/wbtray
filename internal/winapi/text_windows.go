@@ -184,13 +184,58 @@ func (t *TextRenderer) Draw(c *raster.Canvas, items []TextItem, dpi float64) *ra
 	return copyBack(c, dst)
 }
 
-// copyBack fills a canvas from a BGRA buffer.
+// copyBack fills a canvas from a BGRA buffer, taking the alpha from the canvas.
+//
+// The alpha is the point of this function, and it is the canvas's rather than the
+// buffer's because GDI cannot write one: a pixel it draws gets its alpha byte set to
+// zero, whatever the colour. GDI is asked for opaque text on a transparent surface,
+// and the surface is what knows which pixels were meant to be transparent — the
+// notches outside a rounded card, and nothing else. Forcing the alpha to 255 here
+// instead, which is what this used to do, is what made those notches opaque black and
+// put four black corners on the panel.
+//
+// The colour needs a case of its own for the same reason. A pixel GDI did not touch
+// holds premultiplied colour, which is the format both blits take; a pixel it did
+// touch holds the finished opaque colour, because that is what it painted. The two are
+// told apart by the buffer's own alpha byte, which GDI zeroes exactly when it draws.
 func copyBack(c *raster.Canvas, b []byte) *raster.Canvas {
 	for i := 0; i+3 < len(b) && i/4 < c.W*c.H; i += 4 {
 		px := i / 4
-		c.Pix[px] = raster.RGBA{R: b[i+2], G: b[i+1], B: b[i], A: 0xff}
+		a := c.Pix[px].A
+		switch {
+		case a == 0:
+			// Outside the card: transparent, and the colour is irrelevant to a
+			// layered blit.
+			c.Pix[px] = raster.RGBA{}
+		case b[i+3] == 0:
+			// GDI drew here. The colour is already the final one at full coverage,
+			// so it is taken as it stands rather than divided by an alpha GDI
+			// cleared.
+			c.Pix[px] = raster.RGBA{R: b[i+2], G: b[i+1], B: b[i], A: a}
+		default:
+			// Untouched: undo the premultiply so the canvas holds straight colour
+			// again, and nothing is multiplied twice on the way to the screen.
+			un := 255 / float64(a)
+			c.Pix[px] = raster.RGBA{
+				R: clamp8(float64(b[i+2]) * un),
+				G: clamp8(float64(b[i+1]) * un),
+				B: clamp8(float64(b[i]) * un),
+				A: a,
+			}
+		}
 	}
 	return c
+}
+
+// clamp8 rounds a channel to a byte, saturating rather than wrapping.
+func clamp8(v float64) uint8 {
+	if v <= 0 {
+		return 0
+	}
+	if v >= 255 {
+		return 255
+	}
+	return uint8(v + 0.5)
 }
 
 // MeasureText returns the width of a string in the DC's current font.

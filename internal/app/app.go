@@ -33,6 +33,10 @@ type Options struct {
 	OpenPath func(path string) error
 	// RefreshIcon asks the front end to repaint the tray icon.
 	RefreshIcon func()
+	// SettingsChanged asks the front end to repaint anything that draws the palette
+	// or the language. It is separate from RefreshIcon because the icon, the window
+	// and the panel are three surfaces and only the icon is redrawn on every poll.
+	SettingsChanged func()
 	// RecordGatewayVersion notes which version of the gateway is on disk. It is
 	// how a copy that was unpacked by hand, and therefore has no version file,
 	// acquires one.
@@ -542,6 +546,9 @@ func (a *App) notify(lang, title, text string, level int) {
 func (a *App) refreshIcon() {
 	if a.opts.RefreshIcon != nil {
 		a.opts.RefreshIcon()
+	}
+	if a.opts.SettingsChanged != nil {
+		a.opts.SettingsChanged()
 	}
 }
 

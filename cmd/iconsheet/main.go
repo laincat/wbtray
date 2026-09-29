@@ -77,6 +77,14 @@ func sheet(path string) error {
 
 	for row := 0; row < 2; row++ {
 		y0 := row*height + headGap
+		// The label ink follows the half it is drawn on. A sheet the reader has to
+		// squint at is a sheet that hid the thing it exists to show, and the first
+		// version of this drew every label in the dark ink on both halves, which
+		// made the dark desktop's names invisible.
+		ink := raster.RGBA{R: 0x30, G: 0x33, B: 0x3a, A: 0xff}
+		if row == 1 {
+			ink = raster.RGBA{R: 0xd8, G: 0xdb, B: 0xe0, A: 0xff}
+		}
 		for _, v := range variants {
 			bottom := y0 + rowH
 			x := labelW
@@ -88,7 +96,7 @@ func sheet(path string) error {
 				x += 256 + pad
 			}
 			label := raster.New(labelW-pad, labelH)
-			label.Text(0, 2, 1.5, v, raster.RGBA{R: 0x30, G: 0x33, B: 0x3a, A: 0xff})
+			label.Text(0, 2, 1.5, v, ink)
 			paste(img, label, pad, bottom-labelH)
 			y0 += rowH + rowGap
 		}

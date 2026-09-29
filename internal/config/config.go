@@ -212,9 +212,11 @@ func apply(cfg *Config, key, value string) {
 	case "appearance":
 		cfg.Appearance = value
 	case "menu_style":
-		// Retired: the menu is the system menu, and there is no other. The key is
-		// accepted and ignored rather than rejected, so a configuration file
-		// written by an older build still opens.
+		// Retired: right click opens a panel this program draws, and the shell's menu
+		// is only the fallback for a machine where the panel cannot be created, so
+		// there is no choice left for this key to make. It is accepted and ignored
+		// rather than rejected, so a configuration file written by an older build
+		// still opens on the defaults instead of failing to load.
 	case "lang", "language":
 		cfg.Lang = value
 	case "show_console":
