@@ -96,9 +96,13 @@ var (
 	procGetDC     = user32.NewProc("GetDC")
 	procReleaseDC = user32.NewProc("ReleaseDC")
 
-	ProcCreateDIBSection    = gdi32.NewProc("CreateDIBSection")
-	ProcDeleteObject        = gdi32.NewProc("DeleteObject")
-	ProcCreateCompatibleDC  = gdi32.NewProc("CreateCompatibleDC")
+	ProcCreateDIBSection   = gdi32.NewProc("CreateDIBSection")
+	ProcDeleteObject       = gdi32.NewProc("DeleteObject")
+	ProcCreateCompatibleDC = gdi32.NewProc("CreateCompatibleDC")
+	// DrawIconEx is how the tests render an icon through its HICON rather than through
+	// the canvas it was built from, which is the only way to catch a conversion that
+	// loses the alpha channel: a blank icon registers with the shell perfectly.
+	ProcDrawIconEx          = user32.NewProc("DrawIconEx")
 	ProcDeleteDC            = gdi32.NewProc("DeleteDC")
 	ProcSelectObject        = gdi32.NewProc("SelectObject")
 	ProcCreateFontIndirectW = gdi32.NewProc("CreateFontIndirectW")
