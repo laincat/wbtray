@@ -296,6 +296,8 @@ pub fn comma(v: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::client::{Account, Overview};
+    use tray_icon::menu::MenuItemKind;
 
     #[test]
     fn every_row_id_maps_to_a_command() {
@@ -356,5 +358,185 @@ mod tests {
     fn the_scheme_is_kept_out_of_the_address_row() {
         assert_eq!(strip_scheme("http://127.0.0.1:7863"), "127.0.0.1:7863");
         assert_eq!(strip_scheme("https://example.com"), "example.com");
+    }
+
+    /// Walk a menu and return its rows, indented, as text.
+    ///
+    /// The structure is what the operator asked for, and the only way to check a
+    /// structure is to read it back. This walks the real menu rather than a description
+    /// of it, so a row moved into the wrong submenu fails here.
+    fn outline(menu: &Menu) -> Vec<String> {
+        fn walk(items: &[tray_icon::menu::MenuItemKind], depth: usize, out: &mut Vec<String>) {
+            for item in items {
+                let pad = "  ".repeat(depth);
+                match item {
+                    tray_icon::menu::MenuItemKind::Submenu(s) => {
+                        let text = s.text();
+                        out.push(format!("{pad}{text}"));
+                        walk(&s.items(), depth + 1, out);
+                    }
+                    tray_icon::menu::MenuItemKind::Predefined(p) => {
+                        let text = p.text();
+                        if text.is_empty() {
+                            out.push(format!("{pad}---"));
+                        } else {
+                            out.push(format!("{pad}{text}"));
+                        }
+                    }
+                    tray_icon::menu::MenuItemKind::Check(c) => {
+                        out.push(format!("{pad}{}", c.text()));
+                    }
+                    tray_icon::menu::MenuItemKind::Icon(i) => {
+                        out.push(format!("{pad}{}", i.text()));
+                    }
+                    tray_icon::menu::MenuItemKind::MenuItem(n) => {
+                        out.push(format!("{pad}{}", n.text()));
+                    }
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(&menu.items(), 0, &mut out);
+        out
+    }
+
+    fn facts_for<'a>(
+        reading: &'a Reading,
+        schedule: &'a Schedule,
+        base: &'a str,
+        key: &'a str,
+        running: bool,
+    ) -> Facts<'a> {
+        Facts {
+            reading,
+            schedule,
+            base,
+            key,
+            gateway_running: running,
+            linked: true,
+            autostart: false,
+        }
+    }
+
+    #[test]
+    fn the_menu_is_the_shape_the_operator_asked_for() {
+        let reading = Reading {
+            state: State::Ok,
+            overview: Overview {
+                total: 1,
+                accounts: vec![Account {
+                    uid: "u1".into(),
+                    nickname: "Laincat".into(),
+                    credits: 5181,
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+            error: None,
+            bad_key: false,
+        };
+        let schedule = Schedule {
+            checkin_enabled: true,
+            keepalive_enabled: true,
+            ..Default::default()
+        };
+        let f = facts_for(
+            &reading,
+            &schedule,
+            "http://127.0.0.1:7863",
+            "sk-probe",
+            true,
+        );
+        let got = outline(&build(&f));
+
+        // The state row carries the account and a dot; the credits row the total. The
+        // values are checked because a row that says the wrong thing is worse than a row
+        // that is missing.
+        //
+        // The tab that right-aligns a value is not part of the string Windows keeps: a
+        // menu stores its text and its layout separately, so reading a row back gives the
+        // words without the placement. These checks are therefore about what the rows say.
+        // Row 1 is the rule between the state and the rest.
+        assert!(got[0].starts_with("Laincat"), "first row is {:?}", got[0]);
+        assert_eq!(got[1], "---", "there is no rule under the state row");
+        assert!(
+            got[2].starts_with("积分"),
+            "the credits row is {:?}",
+            got[2]
+        );
+
+        let text = got.join("\n");
+        for want in [
+            "界面",
+            "打开界面",
+            "API 地址",
+            "密钥",
+            "任务",
+            "联动",
+            "随启",
+            "重启",
+            "关闭",
+            "自启",
+            "关于",
+            "退出",
+        ] {
+            assert!(text.contains(want), "the menu has no {want}:\n{text}");
+        }
+
+        // The tasks submenu marks what is on and leaves the rest blank rather than
+        // listing only the enabled ones, because "which are on" is a question about the
+        // whole set.
+        let tasks_at = got.iter().position(|l| l == "任务").expect("no tasks row");
+        let marked = got[tasks_at + 1..]
+            .iter()
+            .take_while(|l| l.starts_with("  "))
+            .filter(|l| l.contains('✔'))
+            .count();
+        assert_eq!(marked, 2, "the task list marks the wrong count:\n{text}");
+
+        // And the last three rows are the ones that are always there.
+        assert_eq!(got[got.len() - 2], "关于");
+        assert_eq!(got[got.len() - 1], "退出");
+    }
+
+    #[test]
+    fn a_key_that_is_not_set_cannot_be_copied() {
+        // The row is greyed rather than reporting success at copying an empty string. The
+        // greying is what the test can see: the note beside it ("未设置") lives in the
+        // tab-separated part of a row, which the shell keeps as layout rather than as text.
+        fn key_row_enabled(key: &str) -> bool {
+            let reading = Reading::default_for_test();
+            let schedule = Schedule::default();
+            let f = facts_for(&reading, &schedule, "http://127.0.0.1:7863", key, true);
+            let menu = build(&f);
+            fn find(items: &[MenuItemKind]) -> Option<bool> {
+                for item in items {
+                    if let MenuItemKind::Submenu(s) = item {
+                        if s.text() == "界面" {
+                            return s.items().iter().find_map(|i| match i {
+                                MenuItemKind::MenuItem(m) if m.text() == "密钥" => {
+                                    Some(m.is_enabled())
+                                }
+                                _ => None,
+                            });
+                        }
+                        if let Some(v) = find(&s.items()) {
+                            return Some(v);
+                        }
+                    }
+                }
+                None
+            }
+            find(&menu.items()).expect("no key row")
+        }
+
+        assert!(
+            !key_row_enabled(""),
+            "the key row is clickable with no key to copy"
+        );
+        assert!(
+            key_row_enabled("sk-probe"),
+            "the key row is greyed with a key"
+        );
     }
 }

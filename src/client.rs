@@ -113,6 +113,17 @@ impl Reading {
             bad_key: false,
         }
     }
+
+    /// A reading of a gateway that is up, for tests that are about something else.
+    #[cfg(test)]
+    pub fn default_for_test() -> Reading {
+        Reading {
+            state: State::Degraded,
+            overview: Overview::default(),
+            error: None,
+            bad_key: false,
+        }
+    }
 }
 
 /// A client for one gateway.
