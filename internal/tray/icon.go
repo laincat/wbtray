@@ -145,6 +145,10 @@ type Icon struct {
 	hintX, hintY int
 	// lastClickTime implements the double-click test for the icon.
 	lastClickTime uint32
+	// taskbarCreated is the id of the message explorer broadcasts when it starts.
+	// It is looked up once, at start, because the value is assigned by the system and
+	// differs between sessions.
+	taskbarCreated uint32
 }
 
 // New builds a tray icon bound to the given callbacks.
@@ -212,6 +216,32 @@ func (t *Icon) SetIcon(c *raster.Canvas) {
 	}
 }
 
+// reAddIcon registers the icon with the shell again, after explorer has started.
+//
+// Everything the first registration set is set again, because a new instance of the
+// shell knows none of it: the icon, the tooltip, the callback message and the version
+// four protocol that gives the tooltip a second line. Skipping any of them leaves a
+// usable-looking icon whose hover text is wrong or whose clicks go nowhere, which is
+// a harder fault to notice than a missing icon.
+func (t *Icon) reAddIcon() {
+	t.mu.Lock()
+	hwnd, hicon, tip := t.hwnd, t.hicon, t.tip
+	t.mu.Unlock()
+	if hwnd == 0 {
+		return
+	}
+	if tip == "" {
+		tip = t.title
+	}
+	nid := t.newNID(hwnd, hicon, nifMessage|nifIcon|nifTip|nifShowTip)
+	winapi.CopyUTF16(nid.SzTip[:], tip)
+	winapi.ProcShellNotifyIconW.Call(nimAdd, uintptr(unsafe.Pointer(nid)))
+
+	nidv := t.newNID(hwnd, hicon, 0)
+	nidv.UVersion = notifyIconVersion4
+	winapi.ProcShellNotifyIconW.Call(nimSetVersion, uintptr(unsafe.Pointer(nidv)))
+}
+
 // Notify raises a balloon notification. level is 0 for information, 1 for a
 // warning and 2 for an error, which is what picks the shell's own icon.
 func (t *Icon) Notify(title, text string, level int) {
@@ -277,6 +307,16 @@ func (t *Icon) Run() error {
 		0, 0, 0, 0, 0, 0, 0, hInst, 0)
 	if hwnd == 0 {
 		return fmt.Errorf("CreateWindowExW: %v", err)
+	}
+
+	// The id explorer broadcasts when it starts. Asked for before the icon is
+	// registered, because the answer is needed by the message procedure that the
+	// registration makes live.
+	if id, _, _ := winapi.ProcRegisterWindowMessageW.Call(
+		uintptr(unsafe.Pointer(winapi.UTF16Ptr("TaskbarCreated")))); id != 0 {
+		t.mu.Lock()
+		t.taskbarCreated = uint32(id)
+		t.mu.Unlock()
 	}
 
 	hicon := iconFromCanvas(t.iconCanvas())

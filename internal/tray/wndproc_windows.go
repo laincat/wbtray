@@ -19,6 +19,17 @@ import (
 // flags, and rightly: it is indistinguishable from a pointer that outlived its
 // object. An unsafe.Pointer argument carries no such ambiguity.
 func (t *Icon) wndProc(hwnd uintptr, msg uint32, wparam uintptr, lparam unsafe.Pointer) uintptr {
+	// TaskbarCreated arrives when explorer starts. Every icon registered with the
+	// previous instance of the shell is gone by then, so a program that does not
+	// answer this message simply disappears from the notification area — the process
+	// keeps running, the menus keep working, and there is no icon to open them from.
+	//
+	// It is a registered message rather than a constant: the number is assigned at
+	// run time and differs between sessions, so it has to be looked up and compared.
+	if msg == t.taskbarCreated {
+		t.reAddIcon()
+		return 0
+	}
 	switch msg {
 	case callbackMsg:
 		// This shell uses the version-4 notification-icon protocol, which packs

@@ -154,16 +154,19 @@ func run(cfg config.Config, cfgPath string) error {
 			})
 		},
 	})
-	go startTicker(a, stop)
 	go startVersionChecks(a, stop)
-	// The first reading is taken immediately rather than after one interval, so
-	// the icon is correct from the moment it appears instead of showing an empty
-	// gauge for the first few seconds.
+	// The gateway is brought up first, and the readings start when it has answered.
+	//
+	// The order matters and used to be wrong. The ticker started polling at the same
+	// moment as this, while the gateway was still being started or was still binding
+	// its port, so a cold start collected three failures before the first success —
+	// enough to put "gateway offline" on the screen and to raise the balloon that says
+	// so, on a machine where nothing was wrong. Waiting here is what keeps the first
+	// state the real one; the wait ends as soon as the API answers, and the tray icon
+	// is on the taskbar and the menus are usable throughout.
 	go func() {
-		// The gateway is brought up before the first reading, so the tray's first
-		// state is the real one rather than "offline" for a machine where nothing
-		// is wrong.
 		bootstrapGateway(a, lc)
+		startTicker(a, stop)
 	}()
 
 	runErr := icon.Run()
