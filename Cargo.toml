@@ -1,0 +1,61 @@
+[package]
+name = "wbtray"
+version = "3.0.0"
+edition = "2021"
+description = "Tray for the workbuddy2api gateway"
+license = "MIT"
+build = "build.rs"
+
+[build-dependencies]
+# Only build.rs uses these: it draws the icon and writes the resource script that the
+# linker turns into the executable's icon and version block.
+png = "0.18"
+
+[dependencies]
+# The tray icon and the native menu, which is the whole reason this is Rust: the
+# shell's own menu is the one control that behaves the way Windows users expect at
+# the notification area, and winapi has it already built.
+# muda comes in through tray-icon's own re-export rather than as a second dependency:
+# two versions of it in one build are two incompatible types, and the menu would not
+# satisfy the trait the tray wants it to.
+tray-icon = "0.25"
+
+# The Win32 calls the tray needs beyond the two crates above: process control,
+# clipboard, and the console window the gateway is given.
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_System_Threading",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Shell",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
+    "Win32_System_Console",
+    "Win32_System_Registry",
+] }
+
+# Reading the gateway's own JSON. The tray has to parse it for the API key, the
+# port and the enabled tasks, and hand-writing a parser for someone else's file is
+# how a field rename becomes a silent failure.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# HTTP: no async runtime, because every request here is one call on a background
+# thread and a runtime would be more machinery than the work.
+ureq = { version = "3", features = ["json"] }
+
+# The download and install path. A zip reader and a way to move a directory aside.
+zip = { version = "4", default-features = false, features = ["deflate"] }
+
+# Used by the development preview binary, which lays the icon out at every size so the
+# shape can be judged by looking at it. A normal dependency rather than a dev one because
+# a binary target cannot depend on dev-dependencies; nothing in the program uses it, so it
+# is not linked into the tray.
+png = "0.18"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

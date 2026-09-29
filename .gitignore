@@ -1,17 +1,11 @@
-# Build output
-/dist/
-*.exe
+# Cargo's build directory. Everything in it is derived from the sources, and it is
+# hundreds of megabytes of it.
+/target/
 
-# Local configuration
+# The tray's own settings, which belong to whoever runs it.
 wbtray.conf
 *.log
 
-# Scratch output from the development commands
-/menu-sheets/
-/chart-sheets/
-/icon-sheets/
-
-# The legibility sheet is a diagnostic written by a test, not a committed
-# illustration: it is the one to look at while tuning the figures, and it goes
-# stale the moment a size changes.
-/design/figure-legibility.png
+# Scratch output from the development commands.
+/dist/
+/preview/
