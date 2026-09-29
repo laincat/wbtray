@@ -355,7 +355,19 @@ func (w *Window) hoverAt(x, y float64) {
 	w.hover = key
 	w.mu.Unlock()
 	if changed {
-		winapi.ProcSetCursor.Call(0)
+		w.resetCursor()
+	}
+}
+
+// resetCursor puts the pointer back to the arrow.
+//
+// SetCursor(0) is not "the default cursor" — it is the null cursor, and the cursor
+// disappears until the pointer is moved into a window that sets one. That is what
+// made the pointer vanish over the console: moving off a row that wanted a hand left
+// nothing to restore, so the next WM_SETCURSOR had no cursor to fall back to.
+func (w *Window) resetCursor() {
+	if c, _, _ := winapi.ProcLoadCursorW.Call(0, idcArrow); c != 0 {
+		winapi.ProcSetCursor.Call(c)
 	}
 }
 

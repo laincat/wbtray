@@ -57,6 +57,9 @@ const (
 	// WA_INACTIVE is the wParam of wmActivate when this window has stopped being the
 	// active one, which is the signal a flyout dismisses itself on.
 	waInactive = 0
+	// wmRButtonDown is the other press the panel has to watch for while it holds the
+	// mouse capture. A right press outside it dismisses, the same as a left one.
+	wmRButtonDown = 0x0204
 	// waActive is its opposite, and it is recorded rather than acted on: a panel that
 	// has been active closes when something else takes the focus, and one that never
 	// managed to take it must not, or the dismissal that keeps it open is the dismissal
@@ -93,11 +96,6 @@ type Panel struct {
 	hits []ui.TrayHit
 	// hover is the row the pointer is over, so the cursor can change.
 	hover string
-	// active records whether the panel ever actually held the focus. It is what tells
-	// the two arrivals of WM_ACTIVATE(WA_INACTIVE) apart: the one that means the
-	// operator clicked somewhere else, and the one that arrives because the panel was
-	// never activated at all and the foreground never left the window that had it.
-	active bool
 
 	w, h int
 
@@ -210,7 +208,20 @@ func (p *Panel) wndProc(hwnd uintptr, msg uint32, wparam uintptr, lparam unsafe.
 	case wmLButtonDown:
 		mx, my := winapi.MousePos(uintptr(lparam))
 		x, y := float64(mx), float64(my)
+		if !self.contains(x, y) {
+			// A press that landed outside the panel, delivered here because the mouse
+			// is captured. That is the operator clicking somewhere else, which is how
+			// every flyout on the desktop is dismissed.
+			self.Hide()
+			return 0
+		}
 		self.click(x, y)
+		return 0
+	case wmRButtonDown:
+		mx, my := winapi.MousePos(uintptr(lparam))
+		if !self.contains(float64(mx), float64(my)) {
+			self.Hide()
+		}
 		return 0
 	case wmMouseMove:
 		mx, my := winapi.MousePos(uintptr(lparam))
@@ -226,30 +237,17 @@ func (p *Panel) wndProc(hwnd uintptr, msg uint32, wparam uintptr, lparam unsafe.
 		}
 		return 0
 	case wmActivate:
-		// Clicking anywhere else is how a menu is dismissed, and the panel does the same.
+		// Nothing, deliberately.
 		//
-		// The signal only counts if the panel has been active. Windows sends
-		// WM_ACTIVATE(WA_INACTIVE) to a window that never held the focus as well — it is
-		// the shell telling the new window what its state is, and the state of a window
-		// that was never foreground is "not the foreground". Treating that as the
-		// operator clicking away closes the panel the instant it opens, which is what
-		// happened here, and it is why SetForegroundWindow refusing to grant the focus
-		// showed up as a panel that flickered rather than as a panel that would not come
-		// forward.
-		switch winapi.LowWord(wparam) {
-		case waActive:
-			self.mu.Lock()
-			self.active = true
-			self.mu.Unlock()
-		case waInactive:
-			self.mu.Lock()
-			was := self.active
-			self.active = false
-			self.mu.Unlock()
-			if was {
-				self.Hide()
-			}
-		}
+		// Dismissal on "the operator clicked elsewhere" was built on this message twice,
+		// and both times it was wrong for the same reason: losing the focus is not
+		// something this panel can reliably observe. Windows sends WM_ACTIVATE(WA_INACTIVE)
+		// to a window that never held the focus at all — that is how it reports a new
+		// window's state — and it sends it again when the focus moves to this program's
+		// own console window. The first attempt therefore closed the panel on the frame it
+		// opened, and the second closed it whenever the tray lost a race it does not
+		// control, which is most of the time. The mouse capture in Show is the mechanism
+		// that actually works.
 		return 0
 	}
 	r, _, _ := winapi.ProcDefWindowProcW.Call(hwnd, uintptr(msg), wparam, uintptr(lparam))
@@ -355,6 +353,18 @@ func (p *Panel) paint() {
 	_ = act
 }
 
+// contains reports whether a point is inside the panel.
+//
+// It is a rectangle test rather than the hit list, because the hit list holds the rows
+// that do something and the question here is only whether the press was meant for this
+// window at all — the padding around the rows counts as inside.
+func (p *Panel) contains(x, y float64) bool {
+	p.mu.Lock()
+	w, h := p.w, p.h
+	p.mu.Unlock()
+	return x >= 0 && y >= 0 && x < float64(w) && y < float64(h)
+}
+
 // click runs the action under a point.
 func (p *Panel) click(x, y float64) {
 	p.mu.Lock()
@@ -391,7 +401,12 @@ func (p *Panel) move(x, y float64) {
 	p.hover = key
 	p.mu.Unlock()
 	if changed {
-		winapi.ProcSetCursor.Call(0)
+		// The arrow, not the null cursor: SetCursor(0) hides the pointer rather
+		// than restoring it, and a panel that hides the pointer as the operator
+		// moves across its rows is a panel they cannot use.
+		if c, _, _ := winapi.ProcLoadCursorW.Call(0, idcArrow); c != 0 {
+			winapi.ProcSetCursor.Call(c)
+		}
 	}
 }
 
@@ -416,10 +431,23 @@ func (p *Panel) Show() {
 	// The focus is taken on purpose. A flyout that dismisses itself when it loses the
 	// focus has to hold the focus, or the first click anywhere at all — including the
 	// click that is opening it — takes it away again and it closes on the same frame it
-	// opened. SetForegroundWindow is the API for that; it can refuse, which leaves a
-	// panel that stays open until the next click somewhere else, and that is a better
-	// failure than one that will not stay open.
+	// opened.
+	//
+	// SetForegroundWindow is allowed to refuse, and it refuses exactly when the call
+	// comes from a process that is not already the foreground one — which is the tray's
+	// situation every time the icon is clicked. A refusal is not a failure here: the
+	// panel is left open and just does not hold the keyboard, and the dismissal below
+	// is driven by the pointer rather than by the focus so that this cannot close it.
 	winapi.ProcSetForegroundWindow.Call(hwnd)
+	// The mouse is captured for as long as the panel is open, which is how the panel
+	// learns about a click outside itself.
+	//
+	// A window only receives mouse messages inside its own client area, so without this
+	// a press on the desktop goes to whatever is there and the panel never hears about
+	// it. Capture routes every press to this window instead, wherever it lands — which is
+	// the mechanism the shell's own menus use, and the reason they close on a click
+	// anywhere. The capture is released in Hide.
+	winapi.ProcSetCapture.Call(hwnd)
 	p.Invalidate()
 }
 
@@ -474,6 +502,9 @@ func (p *Panel) Hide() {
 	hwnd := p.hwnd
 	p.mu.Unlock()
 	if hwnd != 0 {
+		// The capture goes with the panel: a window that holds it while hidden takes
+		// every click on the desktop for itself, which reads as a hung pointer.
+		winapi.ProcReleaseCapture.Call()
 		winapi.ProcShowWindow.Call(hwnd, swHide)
 	}
 }
