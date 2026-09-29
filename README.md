@@ -282,8 +282,13 @@ operator to switch by hand.
 
 https://cnb.cool/laincat/wbtray is a mirror of GitHub, and builds nothing:
 
-- It pulls every branch and tag from GitHub hourly, with a button on the repository
-  page (and an API trigger) to do it now.
+- It pulls every branch and tag from GitHub **every six hours**, with a button on
+  the repository page (and an API trigger) to do it now. The interval is a budget
+  decision: CNB bills a run in five-minute blocks whatever the work is, and the
+  free allowance is shared with the release jobs. Hourly exhausted it, and the
+  symptom was the mirror quietly ceasing to produce releases — the run stops in its
+  prepare stage with "CPU core-hours are insufficient for pre-freezing", so nothing
+  is published and the pull cannot report it.
 - When a version tag arrives, that tag's GitHub release assets are re-uploaded as
   they are — **not rebuilt** — so the files on the two sites are byte-for-byte
   identical. The job retries for twenty minutes, because a tag and its assets do

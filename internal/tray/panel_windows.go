@@ -25,11 +25,16 @@ import (
 // is opened and closed all day and a window per opening would leak a display handle
 // and a class registration each time.
 //
-// Two styles matter and both were measured rather than assumed. WS_EX_NOACTIVATE
-// keeps the panel from taking focus, so the window underneath does not lose its
-// active title bar when the panel opens. WS_POPUP with no owner keeps it above the
-// taskbar without being in the shell's z-order band, which is what it would join if
-// the tray window owned it.
+// Two styles matter, and both were measured rather than assumed.
+//
+// WS_POPUP with no owner keeps the panel above the taskbar without joining the
+// shell's z-order band, which is what it would join if the tray window owned it.
+//
+// The panel takes the focus, and it must. Dismissing on "the operator clicked
+// somewhere else" is built out of losing the focus, so a panel that never takes it is
+// told it has lost it the moment it appears and closes on its own first frame. An
+// earlier version was created with WS_EX_NOACTIVATE to be polite to the window
+// underneath, and that is exactly what it did.
 
 // Window styles and messages for the panel.
 // The styles and messages this file needs beyond the ones the tray already names.

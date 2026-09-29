@@ -29,21 +29,30 @@
 # The pull. A cron entry is the only trigger that can start a job without a push
 # to this repository, and push is precisely what this repository does not do.
 #
-# Hourly, and the number is a budget decision rather than a taste one. CNB freezes
-# usage in five-minute blocks, so a run costs a full five minutes of one core
-# however short it is, 0.083 core-hours. The free allowance is 160 core-hours a
-# month, and the release jobs bill against the same allowance:
+# Every six hours, and the number is a budget decision rather than a taste one.
+# CNB bills in five-minute blocks whatever the work is, so a run costs a full five
+# minutes of one core, 0.083 core-hours. The free allowance is 160 core-hours a
+# month and it is shared by every job here — the pull, the on-demand pulls and the
+# release jobs:
 #
 #     every 15 min   96 runs/day   240 core-hours/month   150% of the allowance
 #     every 30 min   48 runs/day   120 core-hours/month    75%, little left
-#     every 60 min   24 runs/day    60 core-hours/month    38%, comfortable
+#     every 60 min   24 runs/day    60 core-hours/month    38%, assumed to fit
+#     every  6 h      4 runs/day    10 core-hours/month     6%, and headroom
 #
-# Fifteen minutes would exceed the allowance outright and quietly start charging.
-# Hourly is soon enough for a mirror: wbtray checks for its own updates every six
-# hours, and anyone who wants a release sooner has the button on the repository
-# page and the pipeline below it.
+# It was hourly, and hourly ran the organisation out of quota: a build stops at
+# the prepare stage with "Root Group's events CPU core-hours are insufficient for
+# pre-freezing", the stages are skipped, and the mirror silently stops producing
+# releases. That failure is invisible from this side — the pull still reports
+# success on the runs it manages to start — so the arithmetic above has to leave
+# room for a month of releases and every manual sync on top.
+#
+# Six hours is also the interval the tray itself checks for updates on, so a
+# mirror a person would reach for is never more than one check behind. The button
+# on the repository page and the pipeline below it are there for anyone who wants
+# a release sooner.
 main:
-  "crontab: 0 * * * *":
+  "crontab: 0 */6 * * *":
     - name: mirror from github
       runner:
         cpus: 1
@@ -53,7 +62,7 @@ main:
           settings:
             # Read-only source, so no credential is needed for a public
             # repository. A token would only raise the anonymous rate limit, and
-            # one pull an hour never approaches it.
+            # four pulls a day never approach it.
             target_url: https://github.com/laincat/wbtray.git
             auth_type: https
             sync_mode: pull

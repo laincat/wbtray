@@ -123,10 +123,6 @@ func (c *Client) Fetch(ctx context.Context) status.Snapshot {
 
 	var firstErr error
 	unauthorized := false
-	// notReady records that the gateway answered and said it cannot serve yet. It is
-	// a fact about the pool rather than about the network, so it does not make the
-	// gateway unreachable.
-	notReady := false
 	for i := 0; i < 4; i++ {
 		r := <-results
 		if r.err == nil {
@@ -135,9 +131,12 @@ func (c *Client) Fetch(ctx context.Context) status.Snapshot {
 		if errors.Is(r.err, ErrUnauthorized) {
 			unauthorized = true
 		}
+		// A 503 is the gateway answering that it cannot serve yet. That is a fact
+		// about the pool, not about the network, so it must not be recorded as a
+		// reachability failure — the body has already been decoded into the
+		// snapshot, which is where the pool's own state now lives.
 		var nr errNotReady
 		if errors.As(r.err, &nr) {
-			notReady = true
 			continue
 		}
 		// The health probe decides reachability, so its error is the one worth
@@ -158,7 +157,6 @@ func (c *Client) Fetch(ctx context.Context) status.Snapshot {
 		// been reached, and calling that offline is what put "gateway offline" over
 		// a gateway that was running.
 		snap.Reachable = true
-		_ = notReady
 	}
 	return snap
 }
