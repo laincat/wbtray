@@ -123,6 +123,10 @@ func (c *Client) Fetch(ctx context.Context) status.Snapshot {
 
 	var firstErr error
 	unauthorized := false
+	// notReady records that the gateway answered and said it cannot serve yet. It is
+	// a fact about the pool rather than about the network, so it does not make the
+	// gateway unreachable.
+	notReady := false
 	for i := 0; i < 4; i++ {
 		r := <-results
 		if r.err == nil {
@@ -130,6 +134,11 @@ func (c *Client) Fetch(ctx context.Context) status.Snapshot {
 		}
 		if errors.Is(r.err, ErrUnauthorized) {
 			unauthorized = true
+		}
+		var nr errNotReady
+		if errors.As(r.err, &nr) {
+			notReady = true
+			continue
 		}
 		// The health probe decides reachability, so its error is the one worth
 		// keeping; another endpoint's failure is reported only if nothing else
@@ -145,7 +154,11 @@ func (c *Client) Fetch(ctx context.Context) status.Snapshot {
 	case firstErr != nil:
 		snap.Err = firstErr
 	default:
+		// Reached, whether or not the pool can serve. A gateway answering 503 has
+		// been reached, and calling that offline is what put "gateway offline" over
+		// a gateway that was running.
 		snap.Reachable = true
+		_ = notReady
 	}
 	return snap
 }
@@ -167,6 +180,22 @@ func (c *Client) get(ctx context.Context, path string, into decoder) error {
 	if resp.StatusCode == http.StatusUnauthorized {
 		return ErrUnauthorized
 	}
+	// A 503 is the gateway answering, not the gateway missing.
+	//
+	// The health endpoint returns it while the pool has nothing it can serve with —
+	// every account cooling, a check-in running, or no account added yet — and the
+	// body that comes with it is a complete answer describing exactly that. Treating
+	// it as a transport failure made the tray report "gateway offline" at the moments
+	// the gateway was up and busy, which is the balloon this fixes. The body is
+	// decoded like any other, and the status is reported as its own kind of answer so
+	// the caller can tell "up but not serving" from "not there".
+	if resp.StatusCode == http.StatusServiceUnavailable {
+		data, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+		if err := into.decode(data); err != nil {
+			return errNotReady{path: path, body: strings.TrimSpace(string(data))}
+		}
+		return errNotReady{path: path, body: strings.TrimSpace(string(data))}
+	}
 	if resp.StatusCode >= 400 {
 		// The body carries the gateway's own error text, which is more useful
 		// than the status code alone.
@@ -182,6 +211,23 @@ func (c *Client) get(ctx context.Context, path string, into decoder) error {
 
 // decoder fills part of a snapshot from one endpoint's JSON.
 type decoder interface{ decode([]byte) error }
+
+// errNotReady is a gateway that answered and said it cannot serve yet.
+//
+// It is deliberately not a reachability failure: the gateway is up, its API is
+// answering, and the operator's screen should say what the state is rather than
+// claim the program cannot be found.
+type errNotReady struct {
+	path string
+	body string
+}
+
+func (e errNotReady) Error() string {
+	if e.body == "" {
+		return e.path + ": not serving yet"
+	}
+	return fmt.Sprintf("%s: %s (not serving yet)", e.path, e.body)
+}
 
 type healthBody struct{ into *status.Snapshot }
 

@@ -46,11 +46,26 @@ const (
 	// resize happen without the window jumping above everything else on the way.
 	swpNoZOrder = 0x0004
 	wmActivate  = 0x0006
-	// wmKillFocus is how the panel learns to dismiss itself: it never takes focus, so
-	// this arrives when something else is activated.
+	// wmKillFocus is the second of the two messages that dismiss the panel. It is kept
+	// alongside wmActivate because they arrive together and either one is enough.
 	wmKillFocus = 0x0008
-	// wsExNoActivate keeps the panel from taking focus at all.
-	wsExNoActivatePanel = 0x08000000
+	// WA_INACTIVE is the wParam of wmActivate when this window has stopped being the
+	// active one, which is the signal a flyout dismisses itself on.
+	waInactive = 0
+	// waActive is its opposite, and it is recorded rather than acted on: a panel that
+	// has been active closes when something else takes the focus, and one that never
+	// managed to take it must not, or the dismissal that keeps it open is the dismissal
+	// that closes it. See the case for both messages below.
+	waActive = 1
+	// wsExNoActivate is deliberately absent, and this is the fix for a panel that
+	// opened and then vanished. The panel must hold the focus while it is open: that is
+	// what "click anywhere else and it closes" is built out of, and it is how every
+	// flyout on the desktop behaves. A window created with WS_EX_NOACTIVATE can never
+	// hold it, so the WM_KILLFOCUS it dismissed itself on arrived immediately — from
+	// whatever window did own the focus — and the panel closed a moment after opening,
+	// on some machines and not others depending on what else was in the foreground.
+	//
+	// WS_EX_TOOLWINDOW still keeps it out of the taskbar and out of Alt+Tab.
 	wsExToolWindowPanel = 0x00000080
 	wsPopupPanel        = 0x80000000
 )
@@ -73,6 +88,11 @@ type Panel struct {
 	hits []ui.TrayHit
 	// hover is the row the pointer is over, so the cursor can change.
 	hover string
+	// active records whether the panel ever actually held the focus. It is what tells
+	// the two arrivals of WM_ACTIVATE(WA_INACTIVE) apart: the one that means the
+	// operator clicked somewhere else, and the one that arrives because the panel was
+	// never activated at all and the foreground never left the window that had it.
+	active bool
 
 	w, h int
 
@@ -117,7 +137,7 @@ func NewTrayPanel(icon *raster.Canvas) (*Panel, error) {
 		// is what a menu would be owned by. With no owner the panel is simply topmost,
 		// which is the arrangement that was measured to draw above the taskbar.
 		hwnd, _, cerr := winapi.ProcCreateWindowExW.Call(
-			wsExToolWindowPanel|wsExNoActivatePanel,
+			wsExToolWindowPanel,
 			uintptr(unsafe.Pointer(winapi.UTF16Ptr("wbtrayPanelWnd"))),
 			uintptr(unsafe.Pointer(winapi.UTF16Ptr("wbtray"))),
 			wsPopupPanel,
@@ -200,13 +220,30 @@ func (p *Panel) wndProc(hwnd uintptr, msg uint32, wparam uintptr, lparam unsafe.
 			}
 		}
 		return 0
-	case wmKillFocus, wmActivate:
-		// Clicking anywhere else is how a menu is dismissed, and a panel has to do the
-		// same or it behaves unlike everything else on the desktop. WM_KILLFOCUS is the
-		// one that arrives: the panel never takes focus (WS_EX_NOACTIVATE), so an
-		// activation message would come only when something else is activated.
-		if msg == wmKillFocus {
-			self.Hide()
+	case wmActivate:
+		// Clicking anywhere else is how a menu is dismissed, and the panel does the same.
+		//
+		// The signal only counts if the panel has been active. Windows sends
+		// WM_ACTIVATE(WA_INACTIVE) to a window that never held the focus as well — it is
+		// the shell telling the new window what its state is, and the state of a window
+		// that was never foreground is "not the foreground". Treating that as the
+		// operator clicking away closes the panel the instant it opens, which is what
+		// happened here, and it is why SetForegroundWindow refusing to grant the focus
+		// showed up as a panel that flickered rather than as a panel that would not come
+		// forward.
+		switch winapi.LowWord(wparam) {
+		case waActive:
+			self.mu.Lock()
+			self.active = true
+			self.mu.Unlock()
+		case waInactive:
+			self.mu.Lock()
+			was := self.active
+			self.active = false
+			self.mu.Unlock()
+			if was {
+				self.Hide()
+			}
 		}
 		return 0
 	}
@@ -371,6 +408,12 @@ func (p *Panel) Show() {
 	winapi.ProcSetWindowPos.Call(hwnd, hwndTopmost,
 		uintptr(x), uintptr(y), uintptr(w), uintptr(h),
 		swpNoActivate|swpShowWindow)
+	// The focus is taken on purpose. A flyout that dismisses itself when it loses the
+	// focus has to hold the focus, or the first click anywhere at all — including the
+	// click that is opening it — takes it away again and it closes on the same frame it
+	// opened. SetForegroundWindow is the API for that; it can refuse, which leaves a
+	// panel that stays open until the next click somewhere else, and that is a better
+	// failure than one that will not stay open.
 	winapi.ProcSetForegroundWindow.Call(hwnd)
 	p.Invalidate()
 }

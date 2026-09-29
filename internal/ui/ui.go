@@ -266,11 +266,14 @@ func rail(l *Layout, v View) {
 	// which build it is talking to is a console whose screenshots cannot be
 	// compared.
 	//
-	// It is clipped to the rail's width because the rail is 170 pixels and the name
-	// is longer than that in any font: an earlier version drew it whole, and it ran
-	// under the page title on the other side of the divider.
-	l.add(clip("WorkBuddy2API", 12), 16, 16, 13.5, Figure, p.Text)
-	l.add(orDash(v.Snap.Version), 16, 36, 11, Label, p.Faint)
+	// The name is the program's own and the line under it is the gateway's build, in
+	// that order and with those labels. An earlier version drew the upstream
+	// project's name here, where the rail is 170 pixels wide and no font fits it, so
+	// the name every operator saw was "WorkBuddy2A…" — a truncation of something that
+	// was not this program's name to begin with.
+	l.add(v.tr("app.name"), 16, 16, 13.5, Figure, p.Text)
+	version := v.tr("ui.gateway_version", orDash(v.Snap.Version))
+	l.add(clip(version, 22), 16, 36, 11, Label, p.Faint)
 
 	y := float64(66)
 	for _, t := range Tabs {
@@ -518,12 +521,35 @@ func overviewPage(l *Layout, v View) {
 	// The actions row, at the bottom of the page, because these are what an
 	// operator reaches for while something is already wrong.
 	actionsH := 30.0
+	// The trend gets the room that is left, up to a ceiling. Filling the whole page
+	// with it, which is what this did, draws twelve numbers as a meter-tall shape: the
+	// extra height adds no resolution — there are only twelve samples — and it pushes
+	// the maintenance row so far from the figures that the page reads as a chart with
+	// two strips of chrome rather than as a dashboard.
 	chartH := float64(l.H) - FooterH - 8 - y - gap - actionsH - 24
+	if chartH > 220 {
+		chartH = 220
+	}
 	if chartH < 80 {
 		chartH = 80
 	}
 	chartCard(l, v, x, y, w, chartH)
 	y += chartH + gap
+
+	// What is left below the trend goes to the newest log lines. The chart is capped,
+	// so without this the page carries a band of nothing between the trend and the
+	// maintenance row — and the lines are the one thing an operator wants next to a
+	// shape that says something is happening: the shape says how much, the lines say
+	// what. They are the gateway's own ring, already fetched for the logs page.
+	actsTop := float64(l.H) - FooterH - 8 - 26 - 18
+	if activityH := actsTop - y - gap - 18; activityH >= 70 {
+		activityCard(l, v, x, y, w, activityH)
+	}
+
+	// The maintenance row is anchored to the bottom of the page rather than dropped
+	// under the trend: the rows above it change height with the data, and a row that
+	// moved with them would be in a different place every time the window opened.
+	y = actsTop
 
 	l.add(v.tr("cap.maintenance"), x, y, 11, Label, p.Muted)
 	y += 18
@@ -558,6 +584,9 @@ func overviewPage(l *Layout, v View) {
 // opened from a tray that already shows the current figure, so the question this
 // answers is "is it busy now compared with recently", and for that the shape is the
 // whole answer. The exact figures are in the panels above.
+//
+// It is also capped in height by its caller, because twelve samples do not need a
+// meter of window and the page has a second card to fit under it.
 func chartCard(l *Layout, v View, x, y, w, h float64) {
 	p := v.Palette
 	cardPanel(&l.Ink, p, x, y, w, h)
@@ -613,6 +642,69 @@ func chartCard(l *Layout, v View, x, y, w, h float64) {
 	l.Ink.Circle(last.X, last.Y, 3.5, p.Blue)
 	l.add(compact(peak), innerX, innerY+16, 10.5, Label, p.Muted)
 	l.addRight(v.tr("ui.last_hours", len(series)), innerX+innerW, innerY+16, 10.5, Label, p.Muted)
+}
+
+// activityCard is the newest of the gateway's own log lines, under the trend.
+//
+// The two belong together and this is why they are one page: a shape that says how
+// much is happening and a list that says what is happening answer the two halves of
+// one question, and an operator who sees a spike in the first wants the second
+// immediately. The lines are the gateway's own ring, already read for the logs page.
+func activityCard(l *Layout, v View, x, y, w, h float64) {
+	p := v.Palette
+	cardPanel(&l.Ink, p, x, y, w, h)
+	innerX := x + cardPadX
+	innerW := w - 2*cardPadX
+	cur := y + cardPadY
+
+	l.add(v.tr("cap.activity"), innerX, cur, 11, Label, p.Muted)
+	if len(v.Logs) > 0 {
+		// A way through to the full ring, which is where the rest of it is.
+		More := button{Label: v.tr("btn.all_logs"), Action: ActionTab, Arg: string(TabLogs)}
+		bw := textWidth(More.Label, 11) + 18
+		bx := innerX + innerW - bw
+		l.Ink.RoundedRect(bx, cur-4, bw, 20, 5, p.Raised)
+		l.addCentre(More.Label, bx+bw/2, cur+1, 11, Body, p.Text)
+		l.hit(bx, cur-4, bw, 20, More.Action, More.Arg)
+	}
+	cur += 22
+
+	if len(v.Logs) == 0 {
+		l.add(v.tr("empty.no_logs"), innerX, cur, 11.5, Body, p.Muted)
+		return
+	}
+	// The newest first, the way the logs page reads, and only what fits: this is a
+	// summary of the ring rather than a second copy of it.
+	logs := make([]panel.LogEntry, len(v.Logs))
+	copy(logs, v.Logs)
+	for i, j := 0, len(logs)-1; i < j; i, j = i+1, j-1 {
+		logs[i], logs[j] = logs[j], logs[i]
+	}
+	lineH := 18.0
+	room := int((y + h - cardPadY - cur) / lineH)
+	shown := len(logs)
+	if shown > room {
+		shown = room
+	}
+	for i := 0; i < shown; i++ {
+		e := logs[i]
+		rowY := cur + float64(i)*lineH
+		col := p.Muted
+		switch e.Ch {
+		case "task":
+			col = p.Green
+		case "sys":
+			col = p.Warn
+		case "chat":
+			col = p.Text
+		}
+		when := e.TS
+		if len(when) >= 19 {
+			when = when[11:19]
+		}
+		l.add(when, innerX, rowY+1, 10.5, Label, p.Faint)
+		l.add(clip(e.Text, 118), innerX+56, rowY+1, 11, Body, col)
+	}
 }
 
 // accountsPage is the pool, with the per-account actions the console offers.

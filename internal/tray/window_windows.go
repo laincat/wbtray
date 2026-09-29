@@ -128,7 +128,10 @@ func NewWindow(icon *raster.Canvas) (*Window, error) {
 	hwnd, _, err := winapi.ProcCreateWindowExW.Call(
 		0,
 		uintptr(unsafe.Pointer(winapi.UTF16Ptr("wbtrayMainWnd"))),
-		uintptr(unsafe.Pointer(winapi.UTF16Ptr("WorkBuddy2API"))),
+		// The title names this program, not the gateway it drives. The first version
+		// said "WorkBuddy2API", which is the upstream project's name: a window in the
+		// taskbar under someone else's name is a window nobody can pick out of a list.
+		uintptr(unsafe.Pointer(winapi.UTF16Ptr("wbtray"))),
 		wsOverlappedWindow,
 		cwUseDefault, cwUseDefault, uintptr(ww), uintptr(hh),
 		0, 0, hInst, 0)
