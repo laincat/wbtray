@@ -13,7 +13,8 @@ pub enum State {
     /// The gateway answered and has accounts it can serve with.
     Ok,
     /// The gateway answered and cannot serve: every account is cooling, disabled, or
-    /// there are none.
+    /// there are none — or it refused the key, in which case the fault is the
+    /// configuration rather than the gateway.
     Degraded,
     /// The gateway did not answer, or answered with something the tray cannot use.
     Down,
@@ -104,6 +105,22 @@ pub struct Reading {
     pub bad_key: bool,
 }
 
+impl Default for Reading {
+    /// What the tray knows before it has read anything.
+    ///
+    /// It is "not read yet", not "down": a tray that starts by saying the gateway is
+    /// down is wrong on every machine where it is not, and the operator sees it for as
+    /// long as the first poll takes. The wording is what distinguishes the two.
+    fn default() -> Self {
+        Reading {
+            state: State::Degraded,
+            overview: Overview::default(),
+            error: Some("尚未读取".into()),
+            bad_key: false,
+        }
+    }
+}
+
 impl Reading {
     fn down(err: impl Into<String>) -> Reading {
         Reading {
@@ -169,12 +186,15 @@ impl Client {
         let body = match self.get("/panel/api/overview") {
             Ok(b) => b,
             Err(e) if e.contains("401") => {
+                // The gateway is up and refused the key. That is not the gateway being
+                // down, and saying so sends the operator looking in the wrong place: the
+                // fault is one line of configuration, not a process that needs starting.
                 return Reading {
-                    state: State::Down,
+                    state: State::Degraded,
                     overview: Overview::default(),
                     error: None,
                     bad_key: true,
-                }
+                };
             }
             Err(e) => return Reading::down(e),
         };
@@ -259,6 +279,35 @@ mod tests {
         // three values rather than two.
         assert_eq!(pool(2, 0, true).state(), State::Degraded);
         assert_eq!(pool(0, 0, false).state(), State::Degraded);
+    }
+
+    #[test]
+    fn a_refused_key_is_not_a_gateway_that_is_down() {
+        // The probe found this one: a 401 was mapped to Down, so a tray with the wrong key
+        // said "离线" — which sends the operator to look at the process instead of at the
+        // one line of configuration that is wrong.
+        let r = Reading {
+            state: State::Degraded,
+            overview: Overview::default(),
+            error: None,
+            bad_key: true,
+        };
+        assert_ne!(r.state, State::Down);
+        assert!(r.bad_key);
+    }
+
+    #[test]
+    fn an_unread_tray_does_not_claim_the_gateway_is_down() {
+        // What the tray knows before its first reading. "Down" here is a statement about a
+        // gateway nobody has asked about yet, and it is wrong on every machine where the
+        // gateway is up — which is most of them.
+        let r = Reading::default();
+        assert_ne!(
+            r.state,
+            State::Down,
+            "the initial state claims the gateway is down"
+        );
+        assert!(r.error.is_some(), "an unread state should say so");
     }
 
     #[test]

@@ -88,6 +88,17 @@ fn main() {
     let settings_path = settings::path_beside_exe(&layout.root);
     let mut settings = settings::Settings::load(&settings_path);
 
+    // A one-shot report of what this program makes of the machine it is on: the settings
+    // it resolved, whether a gateway is found, and what one reading says. It exists
+    // because the interesting failures here are invisible from outside — a tray that
+    // reports the gateway as down looks the same whether the gateway is down, the key is
+    // wrong, or the address is wrong, and the only way to tell them apart is to ask the
+    // program.
+    if std::env::args().any(|a| a == "--probe") {
+        probe(&layout, &settings);
+        return;
+    }
+
     // The gateway's own configuration supplies the key and the port, which is what makes
     // a first run work without copying a key out of a file by hand. An explicit setting in
     // the tray's own file wins, so pointing it at a remote gateway stays one line.
@@ -108,12 +119,7 @@ fn main() {
 
     let autostart_on = autostart::enabled();
     let shared = Arc::new(Mutex::new(Shared {
-        reading: Reading {
-            state: State::Down,
-            overview: Default::default(),
-            error: Some("尚未读取".into()),
-            bad_key: false,
-        },
+        reading: Reading::default(),
         schedule: remote.schedule.clone(),
         owned_pid: 0,
         found_pid: 0,
@@ -127,6 +133,19 @@ fn main() {
     // raced the gateway's startup reports "down" about a gateway that is about to be up.
     if settings.autostart_gateway {
         bootstrap(&layout, &shared);
+    }
+
+    // And the first reading is taken before the icon is created, so the tray's first frame
+    // is the truth rather than a placeholder. The two together are what make the tray
+    // agree with the gateway from the moment it appears; either one alone leaves a window
+    // in which the tray says something the operator will act on and should not have.
+    {
+        let client = Client::new(&settings.base_url, &settings.api_key, TIMEOUT);
+        let reading = client.read();
+        let found = gateway::find_all();
+        let mut s = shared.lock().unwrap();
+        s.reading = reading;
+        s.found_pid = found.first().copied().unwrap_or(0);
     }
 
     let (state_tx, state_rx) = channel::<()>();
@@ -241,6 +260,93 @@ fn main() {
 }
 
 /// Find a gateway or start one.
+/// Print one report of what the tray makes of the machine. See the call in `main`.
+fn probe(layout: &Layout, settings: &settings::Settings) {
+    println!("wbtray {VERSION}");
+    println!(
+        "executable     {}",
+        std::env::current_exe()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default()
+    );
+    println!("install root   {}", layout.root.display());
+    println!("gateway dir    {}", layout.dir.display());
+    println!(
+        "gateway exe    {}  ({})",
+        layout.exe().display(),
+        if layout.installed() {
+            "present"
+        } else {
+            "missing"
+        }
+    );
+    println!(
+        "recorded ver   {}",
+        layout.recorded_version().unwrap_or_else(|| "(none)".into())
+    );
+    println!("base_url       {}", settings.base_url);
+    println!(
+        "api_key        {} characters",
+        settings.api_key.chars().count()
+    );
+    println!("linkage        {}", settings.autostart_gateway);
+    println!("tray autostart {}", autostart::enabled());
+
+    let procs = gateway::find_all();
+    println!("gateway procs  {:?}", procs);
+
+    if let Some(c) = gateway::read_config(layout) {
+        println!(
+            "gateway config listen={:?} key={} chars",
+            c.listen,
+            c.api_key.chars().count()
+        );
+        let on: Vec<&str> = c
+            .schedule
+            .rows()
+            .iter()
+            .filter(|(_, on)| *on)
+            .map(|(n, _)| *n)
+            .collect();
+        println!(
+            "tasks enabled  {} of 7: {}",
+            c.schedule.on_count(),
+            on.join(", ")
+        );
+    } else {
+        println!("gateway config (not readable)");
+    }
+
+    let client = Client::new(&settings.base_url, &settings.api_key, TIMEOUT);
+    match client.probe() {
+        Ok(()) => println!("healthz        answered"),
+        Err(e) => println!("healthz        FAILED: {e}"),
+    }
+    let r = client.read();
+    println!("reading        {:?}", r.state);
+    if let Some(e) = &r.error {
+        println!("reading error  {e}");
+    }
+    println!("bad key        {}", r.bad_key);
+    println!(
+        "accounts       {} total, {} ready",
+        r.overview.total,
+        r.overview.ready()
+    );
+    println!("credits        {}", menu::comma(r.overview.credits()));
+    println!("gateway ver    {}", r.overview.version);
+    for a in &r.overview.accounts {
+        println!(
+            "  {}  credits={} cooling={} disabled={}",
+            a.label(),
+            a.credits,
+            a.cooling,
+            a.disabled
+        );
+    }
+    println!("panel url      {}", client.panel_url());
+}
+
 fn bootstrap(layout: &Layout, shared: &Arc<Mutex<Shared>>) {
     if let Some(&pid) = gateway::find_all().first() {
         shared.lock().unwrap().found_pid = pid;
