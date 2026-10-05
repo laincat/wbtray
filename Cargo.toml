@@ -18,7 +18,7 @@ png = "0.18"
 # muda comes in through tray-icon's own re-export rather than as a second dependency:
 # two versions of it in one build are two incompatible types, and the menu would not
 # satisfy the trait the tray wants it to.
-tray-icon = "0.25"
+tray-icon = "0.26"
 
 # The Win32 calls the tray needs beyond the two crates above: process control,
 # clipboard, and the console window the gateway is given.
