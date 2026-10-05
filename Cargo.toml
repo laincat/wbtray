@@ -45,7 +45,7 @@ serde_json = "1"
 ureq = { version = "3", features = ["json"] }
 
 # The download and install path. A zip reader and a way to move a directory aside.
-zip = { version = "4", default-features = false, features = ["deflate"] }
+zip = { version = "8", default-features = false, features = ["deflate"] }
 
 # Used by the development preview binary, which lays the icon out at every size so the
 # shape can be judged by looking at it. A normal dependency rather than a dev one because
