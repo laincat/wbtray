@@ -18,7 +18,8 @@ png = "0.18"
 # muda comes in through tray-icon's own re-export rather than as a second dependency:
 # two versions of it in one build are two incompatible types, and the menu would not
 # satisfy the trait the tray wants it to.
-tray-icon = "0.26"
+# Only the Windows backend is used; default features enable Linux GTK libraries.
+tray-icon = { version = "0.26", default-features = false }
 
 # The Win32 calls the tray needs beyond the two crates above: process control,
 # clipboard, and the console window the gateway is given.
@@ -43,9 +44,6 @@ serde_json = "1"
 # HTTP: no async runtime, because every request here is one call on a background
 # thread and a runtime would be more machinery than the work.
 ureq = { version = "3", features = ["json"] }
-
-# The download and install path. A zip reader and a way to move a directory aside.
-zip = { version = "4", default-features = false, features = ["deflate"] }
 
 # Used by the development preview binary, which lays the icon out at every size so the
 # shape can be judged by looking at it. A normal dependency rather than a dev one because
