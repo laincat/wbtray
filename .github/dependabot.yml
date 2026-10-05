@@ -1,42 +1,36 @@
-# Dependabot keeps the two things that go stale in a repository like this: the
-# action versions in .github/workflows, and the module requirements. Both arrive
-# as a pull request rather than as a change in place, so CI sees them before a
-# release does.
-#
-# There is nothing else to watch. The module has no third-party requirements, so
-# the gomod entry is here to catch the day one is added rather than because there
-# is anything in it today.
-
+# Daily dependency checks; patch/minor merge only after validation.
+# Major updates remain separate for compatibility review.
 version: 2
 updates:
-  - package-ecosystem: gomod
-    directory: "/"
-    schedule:
-      interval: weekly
-      day: monday
-      time: "20:00"
-      timezone: Asia/Shanghai
-    open-pull-requests-limit: 5
-    commit-message:
-      prefix: "chore(deps)"
-    groups:
-      go-dependencies:
-        patterns: ["*"]
-        update-types: ["minor", "patch"]
-
-  - package-ecosystem: github-actions
-    directory: "/"
-    schedule:
-      interval: weekly
-      day: monday
-      time: "20:00"
-      timezone: Asia/Shanghai
-    open-pull-requests-limit: 5
-    commit-message:
-      prefix: "ci(deps)"
-    # A major version of an action is a breaking change often enough that it is
-    # worth reading, so majors are left out of the group and arrive on their own.
-    groups:
-      actions-minor-patch:
-        patterns: ["*"]
-        update-types: ["minor", "patch"]
+- package-ecosystem: cargo
+  directory: /
+  schedule:
+    interval: daily
+    time: '20:00'
+    timezone: Asia/Shanghai
+  open-pull-requests-limit: 5
+  commit-message:
+    prefix: chore(deps)
+  groups:
+    rust-minor-patch:
+      patterns:
+      - '*'
+      update-types:
+      - minor
+      - patch
+- package-ecosystem: github-actions
+  directory: /
+  schedule:
+    interval: daily
+    time: '20:00'
+    timezone: Asia/Shanghai
+  open-pull-requests-limit: 5
+  commit-message:
+    prefix: ci(deps)
+  groups:
+    actions-minor-patch:
+      patterns:
+      - '*'
+      update-types:
+      - minor
+      - patch

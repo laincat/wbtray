@@ -26,9 +26,18 @@ jobs:
       # A cache is worth having here for the same reason it was not for the Go build:
       # this one compiles a hundred crates, and without it a tag build takes minutes.
       - uses: Swatinem/rust-cache@v2
+      - run: python -m unittest discover -s .github/scripts
+      - name: Check Windows dependency graph excludes vulnerable GLib
+        shell: pwsh
+        run: |
+          $graph = cargo tree --locked --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($graph -match '\bglib v') {
+            throw "GLib is present in the Windows build; review GHSA-wrw7-89jp-8q8g"
+          }
       - run: cargo fmt --check
-      - run: cargo clippy --all-targets -- -D warnings
-      - run: cargo test --release
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo test --release --locked
 
   build:
     needs: test
