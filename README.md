@@ -55,7 +55,8 @@ autostart_gateway = true
 autostart_tray = false
 ```
 
-- Empty `base_url` derives a loopback URL from the local gateway's `listen` port,
+- Empty `base_url` derives its URL from the local gateway's `listen` host/port
+  (wildcard hosts map to same-family loopback),
   with `http://127.0.0.1:7863` as the fallback.
 - Empty `api_key` inherits the local gateway's key only when the endpoint is
   recognized as that local installation. An explicit remote URL never inherits

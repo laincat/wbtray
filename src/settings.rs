@@ -67,10 +67,7 @@ impl Settings {
     pub fn effective(&self, config: Option<&crate::gateway::Config>) -> Settings {
         let mut out = self.clone();
         if out.base_url.is_empty() {
-            let port = config
-                .and_then(|c| crate::gateway::port_of(&c.listen))
-                .unwrap_or(7863);
-            out.base_url = format!("http://127.0.0.1:{port}");
+            out.base_url = local_endpoint(config);
         }
         // Never send a local installation's key to an explicit remote endpoint.
         if out.api_key.is_empty() && self.local_control(config) {
@@ -81,13 +78,14 @@ impl Settings {
 
     /// Explicit remote URLs and mismatched ports are observation-only.
     pub fn local_control(&self, config: Option<&crate::gateway::Config>) -> bool {
+        let endpoint = local_endpoint(config);
         let port = config
             .and_then(|c| crate::gateway::port_of(&c.listen))
             .unwrap_or(7863);
         self.base_url.is_empty()
-            || self.base_url == format!("http://127.0.0.1:{port}")
-            || self.base_url == format!("http://localhost:{port}")
-            || self.base_url == format!("http://[::1]:{port}")
+            || self.base_url == endpoint
+            || (endpoint == format!("http://127.0.0.1:{port}")
+                && self.base_url == format!("http://localhost:{port}"))
     }
 
     /// Read the file, falling back to the defaults for anything it does not set.
@@ -143,6 +141,20 @@ impl Settings {
     }
 }
 
+/// Use the actual configured interface for readiness. A wildcard listener is
+/// reached over the matching address family's loopback, never over the network.
+fn local_endpoint(config: Option<&crate::gateway::Config>) -> String {
+    let listen = config.map(|c| c.listen.as_str()).unwrap_or("");
+    let port = crate::gateway::port_of(listen).unwrap_or(7863);
+    let host = listen.rsplit_once(':').map(|(host, _)| host).unwrap_or("");
+    let host = match host {
+        "" | "0.0.0.0" | "localhost" => "127.0.0.1",
+        "[::]" => "[::1]",
+        other => other,
+    };
+    format!("http://{host}:{port}")
+}
+
 fn truthy(v: &str) -> bool {
     matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on")
 }
@@ -150,6 +162,38 @@ fn truthy(v: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inherited_probe_endpoint_matches_preserved_listener() {
+        for (listen, want) in [
+            (":9000", "http://127.0.0.1:9000"),
+            ("0.0.0.0:9000", "http://127.0.0.1:9000"),
+            ("127.0.0.1:9000", "http://127.0.0.1:9000"),
+            ("[::]:9001", "http://[::1]:9001"),
+            ("[::1]:9001", "http://[::1]:9001"),
+            ("192.168.1.2:9002", "http://192.168.1.2:9002"),
+        ] {
+            let config = crate::gateway::Config {
+                listen: listen.into(),
+                api_key: "local".into(),
+                ..Default::default()
+            };
+            let configured = Settings::default();
+            assert_eq!(configured.effective(Some(&config)).base_url, want);
+            let explicit = Settings {
+                base_url: want.into(),
+                ..Default::default()
+            };
+            assert!(explicit.local_control(Some(&config)));
+            assert_eq!(explicit.effective(Some(&config)).api_key, "local");
+            let different = Settings {
+                base_url: "http://192.168.1.3:9002".into(),
+                ..Default::default()
+            };
+            assert!(!different.local_control(Some(&config)));
+            assert!(different.effective(Some(&config)).api_key.is_empty());
+        }
+    }
 
     #[test]
     fn inherited_values_refresh_without_becoming_overrides() {
@@ -192,12 +236,7 @@ mod tests {
             assert!(!settings.local_control(Some(&config)), "{base}");
             assert!(settings.effective(Some(&config)).api_key.is_empty());
         }
-        for base in [
-            "",
-            "http://127.0.0.1:9000",
-            "http://localhost:9000",
-            "http://[::1]:9000",
-        ] {
+        for base in ["", "http://127.0.0.1:9000", "http://localhost:9000"] {
             let settings = Settings {
                 base_url: base.into(),
                 ..Default::default()
