@@ -39,24 +39,28 @@ fn main() {
     let rc = Path::new(&out).join("wbtray.rc");
     write_rc(&rc, &version, &ico);
 
-    // windres turns the .rc into an object the linker accepts. It comes with the mingw
-    // toolchain this crate is built with on Windows, so asking for it by name is asking
-    // for something that is already there.
-    let obj = Path::new(&out).join("wbtray.res.o");
-    let status = std::process::Command::new("windres")
-        .arg("--input")
-        .arg(&rc)
-        .arg("--output")
-        .arg(&obj)
-        .arg("--output-format=coff")
-        .status();
-    match status {
+    let msvc = std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc");
+    let obj = Path::new(&out).join(if msvc { "wbtray.res" } else { "wbtray.res.o" });
+    let compiler = if msvc { "rc.exe" } else { "windres" };
+    let mut command = std::process::Command::new(compiler);
+    if msvc {
+        command
+            .arg("/nologo")
+            .arg("/c65001")
+            .arg(format!("/fo{}", obj.display()))
+            .arg(&rc);
+    } else {
+        command
+            .arg("--input")
+            .arg(&rc)
+            .arg("--output")
+            .arg(&obj)
+            .arg("--output-format=coff");
+    }
+    match command.status() {
         Ok(s) if s.success() => {}
-        Ok(s) => panic!("windres exited with {s}: the icon and version would be missing"),
-        Err(e) => panic!(
-            "windres could not be run ({e}). It ships with the mingw-w64 toolchain; \
-             install it, or install the MSVC build tools and use the msvc target."
-        ),
+        Ok(s) => panic!("{compiler} exited with {s}: resources are required"),
+        Err(e) => panic!("{compiler} could not run ({e}); use an MSVC Developer shell with Windows SDK for msvc, or install mingw-w64 windres for gnu"),
     }
     println!("cargo:rustc-link-arg={}", obj.display());
 }

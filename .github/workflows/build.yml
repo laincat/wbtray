@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -25,6 +25,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       # A cache is worth having here for the same reason it was not for the Go build:
       # this one compiles a hundred crates, and without it a tag build takes minutes.
+      - uses: ilammy/msvc-dev-cmd@v1
       - uses: Swatinem/rust-cache@v2
       - run: python -m unittest discover -s .github/scripts
       - name: Check dependency graph excludes vulnerable GLib
@@ -40,11 +41,14 @@ jobs:
       - run: cargo test --release --locked
 
   build:
+    permissions:
+      contents: write
     needs: test
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
+      - uses: ilammy/msvc-dev-cmd@v1
       - uses: Swatinem/rust-cache@v2
 
       - name: Build
@@ -54,11 +58,14 @@ jobs:
           # tag, so a build from main and a build from a tag differ only in their name.
           # A tag is checked against it below instead of being pasted into it.
           if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            python .github/scripts/check_release_version.py $env:GITHUB_REF_NAME
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             $version = $env:GITHUB_REF_NAME
           } else {
             $version = "0.0.0-" + $env:GITHUB_SHA.Substring(0,12)
           }
           cargo build --release --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           Copy-Item target/release/wbtray.exe dist/wbtray.exe
           Set-Content -Path dist/version.txt -Value $version -NoNewline

@@ -23,9 +23,11 @@ pub fn path_beside_exe(exe_dir: &Path) -> PathBuf {
 }
 
 fn can_write(dir: &Path) -> bool {
-    let probe = dir.join(".wbtray-write-probe");
-    match std::fs::write(&probe, b"1") {
-        Ok(()) => {
+    use std::fs::OpenOptions;
+    let probe = dir.join(format!(".wbtray-write-probe-{}", std::process::id()));
+    match OpenOptions::new().write(true).create_new(true).open(&probe) {
+        Ok(file) => {
+            drop(file);
             let _ = std::fs::remove_file(&probe);
             true
         }
@@ -49,7 +51,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Settings {
-            base_url: "http://127.0.0.1:7863".into(),
+            base_url: String::new(),
             api_key: String::new(),
             // On by default, because it is the whole point of the program: a tray that
             // had to be told to start its gateway would be a tray that does nothing the
@@ -61,6 +63,33 @@ impl Default for Settings {
 }
 
 impl Settings {
+    /// Resolve a copy; never persist inherited credentials or ports.
+    pub fn effective(&self, config: Option<&crate::gateway::Config>) -> Settings {
+        let mut out = self.clone();
+        if out.base_url.is_empty() {
+            let port = config
+                .and_then(|c| crate::gateway::port_of(&c.listen))
+                .unwrap_or(7863);
+            out.base_url = format!("http://127.0.0.1:{port}");
+        }
+        // Never send a local installation's key to an explicit remote endpoint.
+        if out.api_key.is_empty() && self.local_control(config) {
+            out.api_key = config.map(|c| c.api_key.clone()).unwrap_or_default();
+        }
+        out
+    }
+
+    /// Explicit remote URLs and mismatched ports are observation-only.
+    pub fn local_control(&self, config: Option<&crate::gateway::Config>) -> bool {
+        let port = config
+            .and_then(|c| crate::gateway::port_of(&c.listen))
+            .unwrap_or(7863);
+        self.base_url.is_empty()
+            || self.base_url == format!("http://127.0.0.1:{port}")
+            || self.base_url == format!("http://localhost:{port}")
+            || self.base_url == format!("http://[::1]:{port}")
+    }
+
     /// Read the file, falling back to the defaults for anything it does not set.
     pub fn load(path: &Path) -> Settings {
         let mut s = Settings::default();
@@ -77,7 +106,7 @@ impl Settings {
             };
             let v = v.trim().trim_matches('"');
             match k.trim() {
-                "base_url" if !v.is_empty() => s.base_url = v.to_string(),
+                "base_url" => s.base_url = v.to_string(),
                 "api_key" => s.api_key = v.to_string(),
                 "autostart_gateway" => s.autostart_gateway = truthy(v),
                 "autostart_tray" => s.autostart_tray = truthy(v),
@@ -123,9 +152,64 @@ mod tests {
     use super::*;
 
     #[test]
+    fn inherited_values_refresh_without_becoming_overrides() {
+        let settings = Settings::default();
+        let mut config = crate::gateway::Config {
+            api_key: "first".into(),
+            listen: "127.0.0.1:9000".into(),
+            ..Default::default()
+        };
+        let first = settings.effective(Some(&config));
+        assert_eq!(first.base_url, "http://127.0.0.1:9000");
+        assert_eq!(first.api_key, "first");
+        config.api_key = "rotated".into();
+        config.listen = "127.0.0.1:9001".into();
+        let next = settings.effective(Some(&config));
+        assert_eq!(next.api_key, "rotated");
+        assert_eq!(next.base_url, "http://127.0.0.1:9001");
+        assert!(settings.api_key.is_empty());
+        assert!(settings.base_url.is_empty());
+    }
+
+    #[test]
+    fn remote_and_mismatched_endpoints_never_inherit_local_secrets_or_control() {
+        let config = crate::gateway::Config {
+            api_key: "local-secret".into(),
+            listen: "127.0.0.1:9000".into(),
+            ..Default::default()
+        };
+        for base in [
+            "https://example.com",
+            "http://127.0.0.1:9001",
+            "http://localhost.evil:9000",
+            "http://user@localhost:9000",
+            "http://[::1]:9000/path",
+        ] {
+            let settings = Settings {
+                base_url: base.into(),
+                ..Default::default()
+            };
+            assert!(!settings.local_control(Some(&config)), "{base}");
+            assert!(settings.effective(Some(&config)).api_key.is_empty());
+        }
+        for base in [
+            "",
+            "http://127.0.0.1:9000",
+            "http://localhost:9000",
+            "http://[::1]:9000",
+        ] {
+            let settings = Settings {
+                base_url: base.into(),
+                ..Default::default()
+            };
+            assert!(settings.local_control(Some(&config)), "{base}");
+        }
+    }
+
+    #[test]
     fn defaults_are_usable_on_their_own() {
         let s = Settings::default();
-        assert_eq!(s.base_url, "http://127.0.0.1:7863");
+        assert!(s.base_url.is_empty());
         assert!(s.autostart_gateway);
         assert!(!s.autostart_tray);
     }

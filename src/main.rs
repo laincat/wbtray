@@ -54,11 +54,10 @@ const ICON: u32 = 32;
 /// Everything the tray knows, shared between the two threads.
 struct Shared {
     reading: Reading,
-    schedule: Schedule,
-    /// The pid of the gateway this tray started, or zero.
-    owned_pid: u32,
-    /// The pid of a gateway it did not start, when one is running.
-    found_pid: u32,
+    schedule: Option<Schedule>,
+    owned_running: bool,
+    local_control: bool,
+    configured: settings::Settings,
     settings: settings::Settings,
     /// Set when the operator asked for the gateway to stay down, so the linkage does not
     /// bring it straight back and make the menu row look like it did nothing.
@@ -71,83 +70,39 @@ struct Shared {
 
 impl Shared {
     fn gateway_running(&self) -> bool {
-        gateway::alive(self.owned_pid) || gateway::alive(self.found_pid)
-    }
-
-    fn gateway_pid(&self) -> u32 {
-        if gateway::alive(self.owned_pid) {
-            self.owned_pid
-        } else {
-            self.found_pid
-        }
+        self.owned_running || self.reading.state != State::Down && self.reading.error.is_none()
     }
 }
 
 fn main() {
     let layout = Layout::discover();
     let settings_path = settings::path_beside_exe(&layout.root);
-    let mut settings = settings::Settings::load(&settings_path);
-
-    // A one-shot report of what this program makes of the machine it is on: the settings
-    // it resolved, whether a gateway is found, and what one reading says. It exists
-    // because the interesting failures here are invisible from outside — a tray that
-    // reports the gateway as down looks the same whether the gateway is down, the key is
-    // wrong, or the address is wrong, and the only way to tell them apart is to ask the
-    // program.
+    let configured = settings::Settings::load(&settings_path);
+    let remote = gateway::read_config(&layout);
+    let settings = configured.effective(remote.as_ref());
     if std::env::args().any(|a| a == "--probe") {
         probe(&layout, &settings);
         return;
     }
-
-    // The gateway's own configuration supplies the key and the port, which is what makes
-    // a first run work without copying a key out of a file by hand. An explicit setting in
-    // the tray's own file wins, so pointing it at a remote gateway stays one line.
-    let remote = gateway::read_config(&layout).unwrap_or_default();
-    if settings.api_key.is_empty() {
-        settings.api_key = remote.api_key.clone();
-    }
-    if settings.base_url == settings::Settings::default().base_url {
-        if let Some(port) = gateway::port_of(&remote.listen) {
-            settings.base_url = format!("http://127.0.0.1:{port}");
+    if !settings_path.exists() {
+        if let Err(e) = configured.save(&settings_path) {
+            dialog::warn("设置保存失败", &e.to_string());
         }
     }
-    // Written back only when there was no file, so an operator's own edits are never
-    // overwritten by a value the tray discovered.
-    if !settings_path.exists() {
-        let _ = settings.save(&settings_path);
-    }
-
-    let autostart_on = autostart::enabled();
     let shared = Arc::new(Mutex::new(Shared {
         reading: Reading::default(),
-        schedule: remote.schedule.clone(),
-        owned_pid: 0,
-        found_pid: 0,
-        settings: settings.clone(),
+        schedule: if configured.local_control(remote.as_ref()) {
+            remote.as_ref().map(|c| c.schedule.clone())
+        } else {
+            None
+        },
+        owned_running: false,
+        local_control: configured.local_control(remote.as_ref()),
+        configured,
+        settings,
         stopped_by_operator: false,
-        autostart: autostart_on,
+        autostart: autostart::enabled(),
     }));
-
-    // Bring the gateway up before the first reading. This is the whole reason the tray
-    // exists, and doing it first is what keeps the first state the real one: a poll that
-    // raced the gateway's startup reports "down" about a gateway that is about to be up.
-    if settings.autostart_gateway {
-        bootstrap(&layout, &shared);
-    }
-
-    // And the first reading is taken before the icon is created, so the tray's first frame
-    // is the truth rather than a placeholder. The two together are what make the tray
-    // agree with the gateway from the moment it appears; either one alone leaves a window
-    // in which the tray says something the operator will act on and should not have.
-    {
-        let client = Client::new(&settings.base_url, &settings.api_key, TIMEOUT);
-        let reading = client.read();
-        let found = gateway::find_all();
-        let mut s = shared.lock().unwrap();
-        s.reading = reading;
-        s.found_pid = found.first().copied().unwrap_or(0);
-    }
-
     let (state_tx, state_rx) = channel::<()>();
     let (cmd_tx, cmd_rx) = channel::<menu::Command>();
 
@@ -163,100 +118,166 @@ fn main() {
             .expect("the notification area refused the icon")
     };
 
-    // The poll, on its own thread. It reports a reading, a schedule, and whether the
-    // gateway is up; it does not touch the tray, because the tray belongs to the thread
-    // that made it.
+    // All network/process work is serialized on one worker, never the icon thread.
     {
         let shared = Arc::clone(&shared);
         let layout = layout.clone();
-        let state_tx = state_tx.clone();
         std::thread::spawn(move || {
+            let mut child: Option<std::process::Child> = None;
+            let mut pending = None;
             loop {
-                let (client, linkage, stopped) = {
-                    let s = shared.lock().unwrap();
-                    (
-                        Client::new(&s.settings.base_url, &s.settings.api_key, TIMEOUT),
-                        s.settings.autostart_gateway,
-                        s.stopped_by_operator,
-                    )
+                let config = gateway::read_config(&layout);
+                let effective = {
+                    let mut s = shared.lock().unwrap();
+                    s.settings = s.configured.effective(config.as_ref());
+                    s.local_control = s.configured.local_control(config.as_ref());
+                    s.schedule = if s.local_control {
+                        config.map(|c| c.schedule)
+                    } else {
+                        None
+                    };
+                    s.settings.clone()
                 };
-                let reading = client.read();
-
-                // The gateway is looked for on every poll, so one started or stopped by
-                // anything else is noticed and not only the ones this tray did.
-                let found = gateway::find_all();
-                let still_ours = {
+                let mut error = None;
+                let mut force_start = false;
+                if let Some(cmd) = pending.take() {
+                    let allowed = shared.lock().unwrap().local_control;
+                    if allowed {
+                        match cmd {
+                            menu::Command::Stop | menu::Command::Restart => {
+                                shared.lock().unwrap().stopped_by_operator = true;
+                                if let Some(c) = child.as_mut() {
+                                    match gateway::stop(c) {
+                                        Ok(()) => {
+                                            child = None;
+                                            if cmd == menu::Command::Restart {
+                                                shared.lock().unwrap().stopped_by_operator = false;
+                                                force_start = true;
+                                            }
+                                        }
+                                        Err(e) => error = Some(format!("停止失败：{e}")),
+                                    }
+                                } else {
+                                    error = Some(
+                                        "外部启动的网关仅可查看，请使用原启动方式停止。".into(),
+                                    );
+                                }
+                            }
+                            menu::Command::Start => {
+                                shared.lock().unwrap().stopped_by_operator = false;
+                                force_start = true;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                if let Some(c) = child.as_mut() {
+                    match c.try_wait() {
+                        Ok(Some(status)) => {
+                            error = Some(format!("网关已退出：{status}"));
+                            child = None;
+                        }
+                        Err(e) => error = Some(format!("无法检查网关：{e}")),
+                        Ok(None) => {}
+                    }
+                }
+                let client = Client::new(&effective.base_url, &effective.api_key, TIMEOUT);
+                let reachable = client.probe().is_ok();
+                let should_start = {
                     let s = shared.lock().unwrap();
-                    gateway::alive(s.owned_pid)
+                    s.local_control
+                        && (s.configured.autostart_gateway || force_start)
+                        && !s.stopped_by_operator
                 };
-
+                if should_start
+                    && !reachable
+                    && child.is_none()
+                    && layout.installed()
+                    && error.is_none()
+                {
+                    match start_gateway(&layout, &effective) {
+                        Ok(c) => child = Some(c),
+                        Err((still_owned, e)) => {
+                            child = still_owned;
+                            error = Some(e);
+                        }
+                    }
+                }
+                let mut reading = client.read();
+                if let Some(e) = error {
+                    reading.error = Some(e);
+                }
                 {
                     let mut s = shared.lock().unwrap();
                     s.reading = reading;
-                    if !still_ours {
-                        s.owned_pid = 0;
-                    }
-                    s.found_pid = found.first().copied().unwrap_or(0);
-                    if let Some(c) = gateway::read_config(&layout) {
-                        if c.schedule.on_count() > 0 {
-                            s.schedule = c.schedule;
-                        }
-                    }
-                    // Linkage: a gateway that is not running is started again, unless the
-                    // operator asked for it to stay down.
+                    s.owned_running = child.is_some();
                 }
-
-                // Read after the block above so the pids it just refreshed are the ones
-                // being asked about.
-                let need_start = {
-                    let s = shared.lock().unwrap();
-                    linkage && !stopped && !s.gateway_running()
-                };
-                if need_start && layout.installed() {
-                    let _ = start_gateway(&layout, &shared);
-                }
-
-                // One message per reading: the main thread rebuilds the menu from it.
                 let _ = state_tx.send(());
-                std::thread::sleep(POLL);
+                match cmd_rx.recv_timeout(POLL) {
+                    Ok(cmd) => pending = Some(cmd),
+                    Err(RecvTimeoutError::Timeout) => {}
+                    Err(RecvTimeoutError::Disconnected) => break,
+                }
             }
         });
     }
 
     let menu_rx = MenuEvent::receiver();
-    // A short timeout rather than a blocking wait, because there are two sources of work —
-    // a reading and a click — and a blocking wait on one would stall the other. The wait
-    // ends on a reading, on the timeout, and never on a disconnect: the sender lives as
-    // long as the thread that owns it, so a disconnect means the poll thread has ended and
-    // there is nothing left to wait for.
-    while let Ok(()) | Err(RecvTimeoutError::Timeout) =
-        state_rx.recv_timeout(Duration::from_millis(120))
-    {
-        {
+    loop {
+        if !pump_messages() {
+            break;
+        }
+        let mut changed = state_rx.try_iter().count() > 0;
+        while let Ok(ev) = menu_rx.try_recv() {
+            if let Some(cmd) = menu::Command::from_id(&ev.id.0) {
+                if cmd == menu::Command::Quit {
+                    return;
+                }
+                if matches!(
+                    cmd,
+                    menu::Command::Start | menu::Command::Stop | menu::Command::Restart
+                ) {
+                    let _ = cmd_tx.send(cmd);
+                } else {
+                    handle(cmd, &layout, &shared);
+                    let _ = cmd_tx.send(cmd); // wake worker after settings changes
+                }
+                changed = true;
+            }
+        }
+        if changed {
             let s = shared.lock().unwrap();
             let f = facts(&s);
-            let m = menu::build(&f);
-            tray.set_menu(Some(Box::new(m)));
+            tray.set_menu(Some(Box::new(menu::build(&f))));
             let _ = tray.set_tooltip(Some(tooltip(&f)));
             let _ = tray.set_icon(Some(icon(&f, &s)));
         }
+        std::thread::sleep(Duration::from_millis(15));
+    }
+}
 
-        while let Ok(ev) = menu_rx.try_recv() {
-            let cmd = menu::Command::from_id(&ev.id.0);
-            if let Some(cmd) = cmd {
-                let _ = cmd_tx.send(cmd);
+/// Dispatch shell callbacks on the thread that owns the icon and menu.
+#[cfg(windows)]
+fn pump_messages() -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        DispatchMessageW, PeekMessageW, TranslateMessage, MSG, PM_REMOVE, WM_QUIT,
+    };
+    unsafe {
+        let mut msg = MSG::default();
+        while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
+            if msg.message == WM_QUIT {
+                return false;
             }
-        }
-
-        while let Ok(cmd) = cmd_rx.try_recv() {
-            if cmd == menu::Command::Quit {
-                // The gateway is left running, deliberately: it is what is serving, and
-                // quitting the thing that looks at it is not a request to stop it.
-                return;
-            }
-            handle(cmd, &layout, &shared);
+            let _ = TranslateMessage(&msg);
+            DispatchMessageW(&msg);
         }
     }
+    true
+}
+
+#[cfg(not(windows))]
+fn pump_messages() -> bool {
+    false
 }
 
 /// Find a gateway or start one.
@@ -292,8 +313,7 @@ fn probe(layout: &Layout, settings: &settings::Settings) {
     println!("linkage        {}", settings.autostart_gateway);
     println!("tray autostart {}", autostart::enabled());
 
-    let procs = gateway::find_all();
-    println!("gateway procs  {:?}", procs);
+    println!("process control: only children started by this tray");
 
     if let Some(c) = gateway::read_config(layout) {
         println!(
@@ -347,55 +367,66 @@ fn probe(layout: &Layout, settings: &settings::Settings) {
     println!("panel url      {}", client.panel_url());
 }
 
-fn bootstrap(layout: &Layout, shared: &Arc<Mutex<Shared>>) {
-    if let Some(&pid) = gateway::find_all().first() {
-        shared.lock().unwrap().found_pid = pid;
-        return;
+/// Readiness has one deadline and checks the retained child's liveness.
+fn start_gateway(
+    layout: &Layout,
+    settings: &settings::Settings,
+) -> Result<std::process::Child, (Option<std::process::Child>, String)> {
+    let mut child = gateway::start(layout).map_err(|e| (None, format!("无法启动网关：{e}")))?;
+    let ready = wait_ready(Duration::from_secs(10), |timeout| {
+        if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
+            return Err(format!("网关启动期间退出：{status}"));
+        }
+        let answered = Client::new(&settings.base_url, &settings.api_key, timeout)
+            .probe()
+            .is_ok();
+        if child.try_wait().map_err(|e| e.to_string())?.is_some() {
+            return Err("网关启动期间退出".into());
+        }
+        Ok(answered)
+    });
+    if let Err(error) = ready {
+        if let Err(e) = gateway::stop(&mut child) {
+            // Retain ownership after cleanup failure so no competing process is spawned.
+            return Err((Some(child), format!("{error}；停止失败：{e}")));
+        }
+        return Err((None, error));
     }
-    if layout.installed() {
-        let _ = start_gateway(layout, shared);
-    }
+    Ok(child)
 }
 
-/// Start the gateway, wait for it to answer, and record that this tray owns it.
-fn start_gateway(layout: &Layout, shared: &Arc<Mutex<Shared>>) -> Result<u32, String> {
-    let (base, key) = {
-        let s = shared.lock().unwrap();
-        (s.settings.base_url.clone(), s.settings.api_key.clone())
-    };
-    let port = gateway::port_of(
-        base.trim_start_matches("http://")
-            .trim_start_matches("https://"),
-    );
-    let pid = gateway::start(layout, port).map_err(|e| format!("无法启动网关：{e}"))?;
-
-    // A process that has launched is not a gateway that is ready: it reads its
-    // configuration and binds its port over the next seconds, and reading it before that
-    // produces a tray that reports "down" every time it starts.
-    let client = Client::new(&base, &key, TIMEOUT);
-    for _ in 0..40 {
-        if client.probe().is_ok() {
-            break;
+fn wait_ready(
+    budget: Duration,
+    mut probe: impl FnMut(Duration) -> Result<bool, String>,
+) -> Result<(), String> {
+    let deadline = std::time::Instant::now() + budget;
+    loop {
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        if remaining.is_zero() {
+            return Err("网关启动超时".into());
         }
-        std::thread::sleep(Duration::from_millis(250));
+        if probe(remaining.min(Duration::from_millis(500)))? {
+            return Ok(());
+        }
+        std::thread::sleep(
+            deadline
+                .saturating_duration_since(std::time::Instant::now())
+                .min(Duration::from_millis(100)),
+        );
     }
-
-    let mut s = shared.lock().unwrap();
-    s.owned_pid = pid;
-    s.found_pid = 0;
-    s.stopped_by_operator = false;
-    Ok(pid)
 }
 
 /// What the menu and the tooltip draw from, borrowed from the shared state.
 fn facts(s: &Shared) -> menu::Facts<'_> {
     menu::Facts {
         reading: &s.reading,
-        schedule: &s.schedule,
+        schedule: s.schedule.as_ref(),
+        local_control: s.local_control,
+        owned_running: s.owned_running,
         base: &s.settings.base_url,
         key: &s.settings.api_key,
         gateway_running: s.gateway_running(),
-        linked: s.settings.autostart_gateway,
+        linked: s.configured.autostart_gateway,
         autostart: s.autostart,
     }
 }
@@ -407,9 +438,10 @@ fn tooltip(f: &menu::Facts) -> String {
         State::Down => "离线",
     };
     format!(
-        "wbtray — {state}\n{} · 积分 {}",
+        "wbtray — {state}\n{} · 积分 {}\n{}",
         f.base,
-        menu::comma(f.reading.overview.credits())
+        menu::comma(f.reading.overview.credits()),
+        f.reading.error.as_deref().unwrap_or("")
     )
 }
 
@@ -454,56 +486,22 @@ fn handle(cmd: menu::Command, layout: &Layout, shared: &Arc<Mutex<Shared>>) {
                 dialog::warn("复制失败", &e);
             }
         }
-        menu::Command::Start => {
-            if let Err(e) = start_gateway(layout, shared) {
-                dialog::warn("wbtray", &e);
-            }
-        }
-        menu::Command::Stop => {
-            let pid = shared.lock().unwrap().gateway_pid();
-            if pid != 0 {
-                if let Err(e) = gateway::stop(pid) {
-                    dialog::warn("停止失败", &e.to_string());
-                }
-            }
-            let mut s = shared.lock().unwrap();
-            s.owned_pid = 0;
-            s.found_pid = 0;
-            // Asked for, so it stays down: without this the linkage would start it again
-            // on the next poll and the row would look like it had done nothing.
-            s.stopped_by_operator = true;
-        }
-        menu::Command::Restart => {
-            let pid = shared.lock().unwrap().gateway_pid();
-            if pid != 0 {
-                let _ = gateway::stop(pid);
-            }
-            {
-                let mut s = shared.lock().unwrap();
-                s.owned_pid = 0;
-                s.found_pid = 0;
-                s.stopped_by_operator = false;
-            }
-            // The port is released a moment after the process ends, so starting straight
-            // away gets a bind failure that looks like a fault and is only timing.
-            std::thread::sleep(Duration::from_millis(700));
-            if let Err(e) = start_gateway(layout, shared) {
-                dialog::warn("重启失败", &e);
-            }
-        }
+        menu::Command::Start | menu::Command::Stop | menu::Command::Restart => {}
         menu::Command::ToggleLinkage => {
-            let (on, saved) = {
+            if !shared.lock().unwrap().local_control {
+                return;
+            }
+            let saved = {
                 let mut s = shared.lock().unwrap();
-                s.settings.autostart_gateway = !s.settings.autostart_gateway;
-                if s.settings.autostart_gateway {
+                s.configured.autostart_gateway = !s.configured.autostart_gateway;
+                if s.configured.autostart_gateway {
                     // Turning it back on is also a request for the gateway to be up.
                     s.stopped_by_operator = false;
                 }
-                (s.settings.autostart_gateway, s.settings.clone())
+                s.configured.clone()
             };
-            let _ = saved.save(&settings::path_beside_exe(&layout.root));
-            if on && !shared.lock().unwrap().gateway_running() {
-                let _ = start_gateway(layout, shared);
+            if let Err(e) = saved.save(&settings::path_beside_exe(&layout.root)) {
+                dialog::warn("设置保存失败", &e.to_string());
             }
         }
         menu::Command::ToggleAutostart => {
@@ -515,10 +513,12 @@ fn handle(cmd: menu::Command, layout: &Layout, shared: &Arc<Mutex<Shared>>) {
             let saved = {
                 let mut s = shared.lock().unwrap();
                 s.autostart = want;
-                s.settings.autostart_tray = want;
-                s.settings.clone()
+                s.configured.autostart_tray = want;
+                s.configured.clone()
             };
-            let _ = saved.save(&settings::path_beside_exe(&layout.root));
+            if let Err(e) = saved.save(&settings::path_beside_exe(&layout.root)) {
+                dialog::warn("设置保存失败", &e.to_string());
+            }
         }
         menu::Command::About => show_about(layout, shared),
         menu::Command::Quit => {}
@@ -560,4 +560,68 @@ fn show_about(layout: &Layout, shared: &Arc<Mutex<Shared>>) {
     );
     drop(s);
     dialog::about("关于 wbtray", &body);
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn native_pump_dispatches_window_messages() {
+        use windows::core::w;
+        use windows::Win32::Foundation::{LPARAM, WPARAM};
+        use windows::Win32::UI::WindowsAndMessaging::{
+            CreateWindowExW, IsWindow, PostMessageW, HWND_MESSAGE, WINDOW_EX_STYLE, WINDOW_STYLE,
+            WM_CLOSE,
+        };
+        unsafe {
+            let window = CreateWindowExW(
+                WINDOW_EX_STYLE::default(),
+                w!("STATIC"),
+                w!("pump-test"),
+                WINDOW_STYLE::default(),
+                0,
+                0,
+                0,
+                0,
+                Some(HWND_MESSAGE),
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+            assert!(IsWindow(Some(window)).as_bool());
+            PostMessageW(Some(window), WM_CLOSE, WPARAM(0), LPARAM(0)).unwrap();
+            assert!(pump_messages());
+            assert!(
+                !IsWindow(Some(window)).as_bool(),
+                "WM_CLOSE must reach the window procedure"
+            );
+        }
+    }
+
+    #[test]
+    fn readiness_requires_success_and_propagates_exit_errors() {
+        assert!(wait_ready(Duration::from_millis(20), |_| Ok(true)).is_ok());
+        assert_eq!(
+            wait_ready(Duration::from_secs(10), |_| Err("child exited".into())),
+            Err("child exited".into())
+        );
+    }
+
+    #[test]
+    fn readiness_has_one_total_deadline() {
+        let start = std::time::Instant::now();
+        let mut calls = 0;
+        let result = wait_ready(Duration::from_millis(25), |remaining| {
+            calls += 1;
+            assert!(remaining <= Duration::from_millis(25));
+            Ok(false)
+        });
+        assert!(result.is_err());
+        assert!(calls > 0);
+        assert!(start.elapsed() < Duration::from_secs(1));
+        assert!(wait_ready(Duration::ZERO, |_| panic!("expired budget must not probe")).is_err());
+    }
 }

@@ -132,100 +132,66 @@ pub fn port_of(listen: &str) -> Option<u16> {
     listen.rsplit(':').next()?.trim().parse().ok()
 }
 
-/// Every process running under the gateway's name.
-#[cfg(windows)]
-pub fn find_all() -> Vec<u32> {
-    use windows::Win32::System::Diagnostics::ToolHelp::{
-        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
-        TH32CS_SNAPPROCESS,
-    };
-
-    let mut out = Vec::new();
-    unsafe {
-        let snap = match CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) {
-            Ok(h) => h,
-            Err(_) => return out,
-        };
-        let mut entry = PROCESSENTRY32W {
-            dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
-            ..Default::default()
-        };
-        if Process32FirstW(snap, &mut entry).is_ok() {
-            loop {
-                let name = String::from_utf16_lossy(
-                    &entry.szExeFile[..entry
-                        .szExeFile
-                        .iter()
-                        .position(|c| *c == 0)
-                        .unwrap_or(entry.szExeFile.len())],
-                );
-                if name.eq_ignore_ascii_case(EXE) {
-                    out.push(entry.th32ProcessID);
-                }
-                entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
-                if Process32NextW(snap, &mut entry).is_err() {
-                    break;
-                }
-            }
-        }
-        let _ = windows::Win32::Foundation::CloseHandle(snap);
-    }
-    out
-}
-
-#[cfg(not(windows))]
-pub fn find_all() -> Vec<u32> {
-    Vec::new()
-}
-
-/// Whether a specific process is still alive.
-pub fn alive(pid: u32) -> bool {
-    pid != 0 && find_all().contains(&pid)
-}
-
-/// Start the gateway, with no console of its own.
-///
-/// The port is passed through the environment rather than as an argument, because the
-/// gateway takes no listen flag: `WB2A_LISTEN` is the documented way for a host to say
-/// where it should bind, and using it keeps the tray's address and the gateway's
-/// listener in step without editing the operator's `config.json`.
-pub fn start(layout: &Layout, port: Option<u16>) -> std::io::Result<u32> {
+/// Spawn only this installation and retain the OS child handle. Never use a name
+/// or a recycled PID as authority to terminate a process. Bind configuration belongs
+/// to the gateway: do not replace its host with a wildcard derived from an HTTP URL.
+fn launch_command(layout: &Layout) -> Command {
     let mut cmd = Command::new(layout.exe());
     cmd.current_dir(&layout.dir);
-    if let Some(p) = port {
-        cmd.env("WB2A_LISTEN", format!(":{p}"));
+    if let Some(config) = read_config(layout) {
+        if !config.listen.is_empty() {
+            cmd.env("WB2A_LISTEN", config.listen);
+        }
     }
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);
-    let child = cmd.spawn()?;
-    Ok(child.id())
+    cmd
 }
 
-/// Stop a gateway and everything it started.
-///
-/// The child processes go too: a gateway that spawned a helper would otherwise leave
-/// the helper holding the port, and the next start would fail for a reason the operator
-/// cannot see.
-pub fn stop(pid: u32) -> std::io::Result<()> {
-    if pid == 0 {
-        return Ok(());
+pub fn start(layout: &Layout) -> std::io::Result<std::process::Child> {
+    launch_command(layout).spawn()
+}
+
+/// A retained Child uses its original process handle on Windows, avoiding PID reuse.
+pub fn stop(child: &mut std::process::Child) -> std::io::Result<()> {
+    if child.try_wait()?.is_none() {
+        child.kill()?;
     }
-    #[cfg(windows)]
-    {
-        let status = Command::new("taskkill")
-            .args(["/PID", &pid.to_string(), "/T", "/F"])
-            .creation_flags(CREATE_NO_WINDOW)
-            .status()?;
-        if !status.success() {
-            return Err(std::io::Error::other(format!("taskkill exited {status}")));
-        }
-    }
+    child.wait()?;
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn launch_preserves_bind_interface_and_installation() {
+        let root = std::env::temp_dir().join(format!("wbtray-launch-test-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let layout = Layout {
+            root: root.clone(),
+            dir: root.clone(),
+        };
+        for listen in ["127.0.0.1:9000", "[::1]:9001", "192.168.1.2:9002", ":9003"] {
+            std::fs::write(
+                layout.config(),
+                serde_json::json!({"listen": listen}).to_string(),
+            )
+            .unwrap();
+            let command = launch_command(&layout);
+            assert_eq!(command.get_program(), layout.exe().as_os_str());
+            assert_eq!(command.get_current_dir(), Some(layout.dir.as_path()));
+            let bind = command
+                .get_envs()
+                .find(|(key, _)| *key == "WB2A_LISTEN")
+                .unwrap()
+                .1
+                .unwrap();
+            assert_eq!(bind, listen);
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn the_port_comes_out_of_every_listen_shape() {

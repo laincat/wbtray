@@ -85,7 +85,9 @@ impl Command {
 /// Everything the menu draws from.
 pub struct Facts<'a> {
     pub reading: &'a Reading,
-    pub schedule: &'a Schedule,
+    pub schedule: Option<&'a Schedule>,
+    pub local_control: bool,
+    pub owned_running: bool,
     /// The gateway address, as the operator would type it.
     pub base: &'a str,
     /// The key in use, empty when there is none to copy.
@@ -169,18 +171,19 @@ pub fn build(f: &Facts) -> Menu {
 
     // 任务 ▸ — which of the gateway's scheduled tasks are switched on.
     let tasks = Submenu::new("任务", true);
-    for (name, on) in f.schedule.rows() {
-        let mark = if on { "\u{2714}" } else { "　" };
-        let _ = tasks.append(&MenuItem::new(format!("{mark} {name}"), false, None));
-    }
-    if f.schedule.on_count() == 0 {
+    if let Some(schedule) = f.schedule {
+        for (name, on) in schedule.rows() {
+            let mark = if on { "\u{2714}" } else { "　" };
+            let _ = tasks.append(&MenuItem::new(format!("{mark} {name}"), false, None));
+        }
+    } else {
         let _ = tasks.append(&MenuItem::new("未读取到任务", false, None));
     }
     let _ = menu.append(&tasks);
 
     // 联动 ▸ — the three things the operator does to the relationship between the tray
     // and the gateway.
-    let linkage = Submenu::new("联动", true);
+    let linkage = Submenu::new("联动", f.local_control);
     let link_item = CheckMenuItem::with_id(
         MenuId(Command::ToggleLinkage.id().to_string()),
         "随启",
@@ -190,8 +193,10 @@ pub fn build(f: &Facts) -> Menu {
     );
     let _ = linkage.append(&link_item);
     separator(&linkage);
-    push(&linkage, "重启", Command::Restart);
-    push(&linkage, "关闭", Command::Stop);
+    if f.owned_running {
+        push(&linkage, "重启", Command::Restart);
+        push(&linkage, "关闭", Command::Stop);
+    }
     if !f.gateway_running {
         push(&linkage, "启动", Command::Start);
     }
@@ -278,7 +283,7 @@ impl Facts<'_> {
 /// Thousands separators, so a credit balance reads at a glance.
 pub fn comma(v: i64) -> String {
     let neg = v < 0;
-    let s = (v.abs()).to_string();
+    let s = v.unsigned_abs().to_string();
     let mut out = String::new();
     for (i, c) in s.chars().enumerate() {
         if i > 0 && (s.len() - i).is_multiple_of(3) {
@@ -298,6 +303,53 @@ mod tests {
     use super::*;
     use crate::client::{Account, Overview};
     use tray_icon::menu::MenuItemKind;
+
+    #[test]
+    fn all_off_is_known_and_missing_is_distinct() {
+        let reading = Reading::default_for_test();
+        let mut schedule = Schedule {
+            checkin_enabled: true,
+            ..Default::default()
+        };
+        assert!(outline(&build(&facts_for(
+            &reading,
+            &schedule,
+            "http://localhost:7863",
+            "",
+            true
+        )))
+        .join("\n")
+        .contains('✔'));
+        schedule.checkin_enabled = false;
+        let mut facts = facts_for(&reading, &schedule, "http://localhost:7863", "", true);
+        let off = outline(&build(&facts)).join("\n");
+        assert!(!off.contains('✔'));
+        assert!(!off.contains("未读取到任务"));
+        facts.schedule = None;
+        assert!(outline(&build(&facts)).join("\n").contains("未读取到任务"));
+    }
+
+    #[test]
+    fn external_process_has_no_stop_or_restart_commands() {
+        let reading = Reading::default_for_test();
+        let schedule = Schedule::default();
+        let mut facts = facts_for(&reading, &schedule, "http://localhost:7863", "", true);
+        facts.owned_running = false;
+        let text = outline(&build(&facts)).join("\n");
+        assert!(!text.contains("关闭"));
+        assert!(!text.contains("重启"));
+        facts.local_control = false;
+        let menu = build(&facts);
+        let linkage = menu
+            .items()
+            .into_iter()
+            .find_map(|item| match item {
+                MenuItemKind::Submenu(s) if s.text() == "联动" => Some(s),
+                _ => None,
+            })
+            .unwrap();
+        assert!(!linkage.is_enabled());
+    }
 
     #[test]
     fn every_row_id_maps_to_a_command() {
@@ -409,7 +461,9 @@ mod tests {
     ) -> Facts<'a> {
         Facts {
             reading,
-            schedule,
+            schedule: Some(schedule),
+            local_control: true,
+            owned_running: true,
             base,
             key,
             gateway_running: running,
